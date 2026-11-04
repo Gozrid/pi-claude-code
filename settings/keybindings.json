@@ -1,0 +1,5 @@
+{
+  "$schema": "https://pi.dev/schemas/keybindings.schema.json",
+  "app.thinking.cycle": "alt+t",
+  "app.message.followUp": "alt+q"
+}

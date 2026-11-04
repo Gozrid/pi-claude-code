@@ -1,0 +1,15 @@
+{
+  "instances": [
+    {
+      "id": "claude-bag",
+      "name": "BAG",
+      "command": "claude"
+    },
+    {
+      "id": "claude-privat",
+      "name": "Privat",
+      "command": "CLAUDE_CONFIG_DIR=\"$HOME/.claude-priv\" claude",
+      "contextWindow": 200000
+    }
+  ]
+}
