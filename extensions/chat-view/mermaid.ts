@@ -13,12 +13,10 @@
  * PI_MERMAID_FEEDBACK=0 turns the note to the model off.
  */
 
-import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { piPaths } from "../shared/pi-install.ts";
 import { mermaidSources, type Render, type Style, tooWideNote, turnTooWide } from "./diagrams.ts";
 
 type Theme = ExtensionContext["ui"]["theme"];
@@ -26,20 +24,6 @@ type Theme = ExtensionContext["ui"]["theme"];
 const NOTE = "mermaid-too-wide";
 /** Notes in a row without the user writing in between. */
 const MAX_NOTES = 2;
-
-/** Where pi is installed: the running pi, else the managed install. */
-function piPaths(): string[] {
-	const paths: string[] = [];
-	try {
-		if (process.argv[1]) paths.push(realpathSync(process.argv[1]));
-	} catch {}
-	const install = process.env.PI_MANAGED_INSTALL_ROOT ?? join(homedir(), ".pi", "agent", "install");
-	try {
-		const version = readFileSync(join(install, "current-version"), "utf8").trim();
-		paths.push(join(install, "releases", version, "node_modules", "resolve-from-here.js"));
-	} catch {}
-	return paths;
-}
 
 /** grok-mermaid's render() from pi's own dependencies. */
 export async function loadRenderer(): Promise<Render | undefined> {

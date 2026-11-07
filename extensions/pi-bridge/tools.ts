@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { piPackageDir } from "../shared/pi-install.ts";
 import { MODE_CHANNEL, type ModeRequest } from "../shared/agent-bus.ts";
 import { ask, formatAnswers, QUESTIONS_SCHEMA, type AskQuestion } from "./ask.ts";
 import { agyRuleFor, describeAction, GATED_MODES, gateAction, type HookPayload, needsAsking } from "./agy-gate.ts";
@@ -117,15 +118,9 @@ function writeJsonFile(file: string, value: unknown): void {
 
 /** pi's documentation folder of the installed version. */
 export function piDocsDir(): string | undefined {
-	try {
-		const entry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-		const marker = `${join("@earendil-works", "pi-coding-agent")}`;
-		const root = entry.slice(0, entry.indexOf(marker) + marker.length);
-		const docs = join(root, "docs");
-		return existsSync(docs) ? docs : undefined;
-	} catch {
-		return undefined;
-	}
+	const root = piPackageDir();
+	const docs = root && join(root, "docs");
+	return docs && existsSync(docs) ? docs : undefined;
 }
 
 function githubRepo(): string | undefined {
@@ -375,7 +370,7 @@ export function bridgeTools(host: Host): BridgeTool[] {
 			annotations: READ,
 			async call() {
 				const ctx = host.ctx();
-				const pkg = readJsonFile(join(piDocsDir() ?? "", "..", "package.json"));
+				const pkg = readJsonFile(join(piPackageDir() ?? "", "package.json"));
 				return json({
 					version: pkg?.version,
 					mode: ctx?.mode,

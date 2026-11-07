@@ -864,6 +864,7 @@ Layout:
 | `extensions/shared/agent-bus.ts` | event channels between the CLI providers and the extensions that show what they do |
 | `extensions/shared/opening.ts` | how a dialog opens (`/usage`, the wish popup: unfolding frame, typed and lit title, rows appearing) and glides to a new size |
 | `extensions/shared/backdrop.ts` | darkens the screen behind a dialog (`/usage`, the wish popup), fading in |
+| `extensions/shared/pi-install.ts` | where the running pi is installed: its package (docs, version) and dependencies such as grok-mermaid |
 | `extensions/shared/wish-list.ts` | event channel for the open wishes in the empty chat (pi-bridge → provider-logo), clicks on them back to the popup |
 | `extensions/shared/tool-lines.ts`, `diff.ts` | tool blocks (call and result: header, code, JSON, tables, images) and edit diffs the CLI providers write into the answer |
 | `settings/install.sh` | links and merges the pi settings in `settings/` into `~/.pi/agent` |
