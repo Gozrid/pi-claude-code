@@ -9,13 +9,16 @@
  * Shift+Tab switches the CLI's mode (auto → accept edits → plan for Claude
  * Code); for other models it cycles pi's thinking level as pi itself does.
  *
+ * The mouse (fullscreen mode): a click on the mode switches it like Shift+Tab, a
+ * click on the effort opens /effort (when the commands extension provides it).
+ *
  * The data comes from the provider extensions over pi's event bus (see
  * ../shared/agent-bus.ts); without them, nothing is shown.
  */
 
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type TuiMouseEvent, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type AgentStatus, MODE_CHANNEL, type ModeRequest, STATUS_CHANNEL, type StatusEvent } from "../shared/agent-bus.ts";
 import { formatDuration, formatTokens } from "../shared/format.ts";
 
@@ -144,23 +147,43 @@ export function segments(theme: Theme, status: AgentStatus, now = Date.now(), mo
  * segments. A segment wider than a whole line is cut off.
  */
 export function wrapSegments(parts: string[], separator: string, width: number): string[] {
+	return layoutSegments(parts, separator, width).lines;
+}
+
+/** Where a segment ended up: its line and columns [from, to). */
+export interface SegmentSpan {
+	line: number;
+	from: number;
+	to: number;
+}
+
+/** wrapSegments, with where each segment stands, for the mouse. */
+export function layoutSegments(parts: string[], separator: string, width: number): { lines: string[]; spans: SegmentSpan[] } {
 	const gap = visibleWidth(separator);
 	const lines: string[] = [];
+	const spans: SegmentSpan[] = [];
 	let line = "";
 	let used = 0;
 	for (const part of parts) {
 		const size = visibleWidth(part);
 		if (line && used + gap + size <= width) {
 			line += separator + part;
+			spans.push({ line: lines.length, from: used + gap, to: used + gap + size });
 			used += gap + size;
 			continue;
 		}
 		if (line) lines.push(line);
 		line = size > width ? truncateToWidth(part, width) : part;
 		used = Math.min(size, width);
+		spans.push({ line: lines.length, from: 0, to: used });
 	}
 	if (line) lines.push(line);
-	return lines;
+	return { lines, spans };
+}
+
+/** The index of the segment at column `x` of line `y`, or -1. */
+export function segmentAt(spans: readonly SegmentSpan[], x: number, y: number): number {
+	return spans.findIndex((s) => s.line === y && x >= s.from && x < s.to);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -171,6 +194,8 @@ export default function (pi: ExtensionAPI) {
 	/** When the mode last changed; the mode segment animates from there. */
 	let modeSwitchedAt: number | undefined;
 	let ticker: ReturnType<typeof setInterval> | undefined;
+	/** Where the segments were drawn last, for clicks. */
+	let spans: SegmentSpan[] = [];
 
 	const stopTicker = () => {
 		if (ticker) clearInterval(ticker);
@@ -231,7 +256,23 @@ export default function (pi: ExtensionAPI) {
 						if (!status) return [];
 						const now = Date.now();
 						const modeElapsed = modeSwitchedAt === undefined ? undefined : now - modeSwitchedAt;
-						return wrapSegments(segments(theme, status, now, modeElapsed), theme.fg("borderMuted", " │ "), width);
+						const layout = layoutSegments(segments(theme, status, now, modeElapsed), theme.fg("borderMuted", " │ "), width);
+						spans = layout.spans;
+						return layout.lines;
+					},
+					handleMouse(event: TuiMouseEvent) {
+						if (!status || event.button !== "left") return undefined;
+						const index = segmentAt(spans, event.x, event.y);
+						// The segments: mode, model, then the effort when there is one.
+						const target = index === 0 ? "mode" : index === 2 && status.effort ? "effort" : undefined;
+						if (!target) return undefined;
+						if (event.type === "click") {
+							if (target === "mode") pi.events.emit(MODE_CHANNEL, { provider: status.provider } satisfies ModeRequest);
+							else if (pi.getCommands().some((c) => c.name === "effort")) {
+								pi.sendUserMessage("/effort", { expandPromptTemplates: true });
+							}
+						}
+						return { handled: true, render: false };
 					},
 					invalidate() {},
 					dispose() {

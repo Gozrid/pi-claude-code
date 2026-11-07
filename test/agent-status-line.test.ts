@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { MODE_ANIMATION_MS, modeSegment, wrapSegments } from "../extensions/agent-status-line/index.ts";
+import { layoutSegments, MODE_ANIMATION_MS, modeSegment, segmentAt, wrapSegments } from "../extensions/agent-status-line/index.ts";
 
 const parts = ["aaaa", "bbbbbb", "cc", "dddddddd"];
 
@@ -49,4 +49,21 @@ test("the label keeps its width while it animates", () => {
 		const frame = modeSegment(theme, "acceptEdits", t).replace(/[[\]*]/g, "");
 		assert.equal(visibleWidth(frame), width, `${t} ms: ${frame}`);
 	}
+});
+
+test("knows where each segment stands, for clicks", () => {
+	const parts = ["aaaa", "bbbbbb", "cc", "dddddddd"];
+	const { lines, spans } = layoutSegments(parts, " | ", 15);
+	assert.deepEqual(lines, ["aaaa | bbbbbb", "cc | dddddddd"]);
+	assert.deepEqual(spans, [
+		{ line: 0, from: 0, to: 4 },
+		{ line: 0, from: 7, to: 13 },
+		{ line: 1, from: 0, to: 2 },
+		{ line: 1, from: 5, to: 13 },
+	]);
+	assert.equal(segmentAt(spans, 0, 0), 0);
+	assert.equal(segmentAt(spans, 5, 0), -1);
+	assert.equal(segmentAt(spans, 8, 0), 1);
+	assert.equal(segmentAt(spans, 6, 1), 3);
+	assert.equal(segmentAt(spans, 0, 2), -1);
 });

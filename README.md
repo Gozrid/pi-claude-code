@@ -351,6 +351,8 @@ If the terminal is too narrow, the line wraps between segments onto further line
 
 **Shift+Tab** switches the CLI's mode like in Claude Code: `⏵⏵ auto` → `⏵⏵ accept edits` → `⏸ plan` (Antigravity: `⏵ default` → `⏵⏵ accept edits` → `⏸ plan`); the new mode is typed in with an animation and briefly lit up. For other models Shift+Tab cycles pi's thinking level, as pi itself does (see *Free up Shift+Tab* above).
 
+With the mouse (pi's fullscreen mode), a click on the mode switches it like Shift+Tab, and a click on the effort opens `/effort` (when **commands** is on).
+
 The data comes from the provider extensions over pi's event bus (channel `cli-agent:status`, see `extensions/shared/agent-bus.ts`); without them the line stays empty.
 
 ## usage-graph
