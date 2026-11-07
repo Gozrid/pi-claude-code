@@ -248,6 +248,38 @@ test("multiple choice toggles with space; tab moves between questions; esc cance
 	assert.equal(formatAnswers(undefined), "The user closed the dialog without answering.");
 });
 
+test("the mouse: a click chooses an option or toggles it, picks a tab, puts the cursor in the own answer; the wheel moves", () => {
+	const { d, type, result } = dialog([
+		{ question: "Pick", header: "One", options: [{ label: "a" }, { label: "b", description: "the b" }] },
+		{ question: "Many", header: "Two", multiSelect: true, options: [{ label: "x" }, { label: "y" }] },
+	]);
+	const row = (pattern: RegExp) => d.render(80).findIndex((line) => pattern.test(line));
+	const mouse = (type: string, x: number, y: number) => d.handleMouse({ type, button: "left", x, y, clickCount: 1 } as any);
+	// A click on a tab switches the question.
+	const tabs = d.render(80)[row(/\[One\]/)];
+	assert.deepEqual(mouse("click", tabs.indexOf("Two"), row(/\[One\]/)), { handled: true });
+	assert.match(d.render(80).join("\n"), /\[Two\]/);
+	// Several may be chosen: clicks toggle.
+	mouse("click", 6, row(/2\. y/));
+	mouse("click", 6, row(/1\. x/));
+	mouse("click", 6, row(/1\. x/));
+	assert.match(d.render(80).join("\n"), /■ 2\. y/);
+	assert.match(d.render(80).join("\n"), /□ 1\. x/);
+	// The wheel moves the cursor; a press on the own answer focuses it.
+	d.handleMouse({ type: "wheel", button: "none", x: 0, y: 0, wheelDelta: 1 } as any);
+	assert.match(d.render(80).join("\n"), /› [□■] 2\. y/);
+	mouse("press", 20, row(/Own answer/));
+	type(..."z", ENTER);
+	// Back on the first question, a click on an option's description chooses it and ends the dialog.
+	mouse("click", 0, row(/the b/));
+	assert.deepEqual(result(), [
+		{ question: "Pick", selected: ["b"] },
+		{ question: "Many", selected: ["y"], own: "z" },
+	]);
+	// Clicks outside any target are kept from the chat below.
+	assert.deepEqual(mouse("click", 0, 0), { handled: true, render: false });
+});
+
 test("answers read as text for the agent", () => {
 	assert.equal(
 		formatAnswers([

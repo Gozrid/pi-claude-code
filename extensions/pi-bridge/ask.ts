@@ -13,9 +13,22 @@
  *     ✎ Own answer: _
  *
  *   ↑↓ choose · enter confirm · ←/→ question · esc cancel
+ *
+ * The mouse (pi's fullscreen mode): a click on an option chooses it (toggles it
+ * when several may be chosen), on the own answer or the extra field puts the
+ * cursor there, on a question tab switches to it; the wheel moves the cursor.
  */
 
-import { Input, Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	Input,
+	Key,
+	matchesKey,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 export interface AskOption {
 	label: string;
@@ -101,6 +114,13 @@ interface Theme {
 
 type Focus = "list" | "own" | "extra";
 
+/** What a rendered row is, for the mouse. `column` is where an input field starts. */
+type RowTarget =
+	| { kind: "option"; index: number }
+	| { kind: "own"; column: number }
+	| { kind: "extra"; column: number }
+	| { kind: "tabs"; spans: { from: number; to: number; index: number }[] };
+
 interface QuestionState {
 	cursor: number;
 	selected: Set<number>;
@@ -120,6 +140,8 @@ export class AskDialog {
 	private readonly theme: Theme;
 	private readonly requestRender: () => void;
 	private readonly done: (answers: AskAnswer[] | undefined) => void;
+	/** What each row drawn last stands for, for the mouse. */
+	private targets: (RowTarget | undefined)[] = [];
 
 	constructor(
 		title: string | undefined,
@@ -289,8 +311,48 @@ export class AskDialog {
 		}
 	}
 
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type === "wheel" && event.wheelDelta) {
+			if (this.focus !== "extra") this.move(event.wheelDelta < 0 ? -1 : 1);
+			return { handled: true };
+		}
+		if (event.type !== "press" && event.type !== "release" && event.type !== "click") return undefined;
+		const consumed: TuiMouseEventResult = { handled: true, render: false };
+		const target = this.targets[event.y];
+		if (event.button !== "left" || !target) return consumed;
+		const state = this.state;
+		switch (target.kind) {
+			case "tabs": {
+				if (event.type !== "click") return consumed;
+				const tab = target.spans.find((span) => event.x >= span.from && event.x < span.to);
+				if (tab && tab.index !== this.index) this.goTo(tab.index);
+				return { handled: true };
+			}
+			case "option":
+				if (event.type !== "click") return consumed;
+				state.cursor = target.index;
+				this.focus = "list";
+				this.choose(target.index);
+				this.refresh();
+				return { handled: true };
+			case "own":
+			case "extra": {
+				if (event.type !== "press") return consumed;
+				if (target.kind === "own") {
+					state.cursor = this.ownRow;
+					this.focus = "own";
+				} else this.focus = "extra";
+				const input = target.kind === "own" ? state.own : state.extra;
+				input.handleMouse?.({ ...event, x: event.x - target.column, y: 0 });
+				this.refresh();
+				return { handled: true };
+			}
+		}
+	}
+
 	render(width: number): string[] {
 		const { theme } = this;
+		const targets: (RowTarget | undefined)[] = [];
 		const question = this.question;
 		const state = this.state;
 		const inner = Math.max(10, width - INDENT.length * 2);
@@ -298,13 +360,19 @@ export class AskDialog {
 		if (this.title) lines.push(`${INDENT}${theme.fg("muted", this.title)}`);
 
 		if (this.questions.length > 1) {
+			const spans: { from: number; to: number; index: number }[] = [];
+			let column = INDENT.length;
 			const tabs = this.questions
 				.map((q, i) => {
 					const label = q.header ?? `Question ${i + 1}`;
 					const mark = this.states[i].answered ? "✓ " : "";
-					return i === this.index ? theme.bold(theme.fg("accent", `[${mark}${label}]`)) : theme.fg("dim", ` ${mark}${label} `);
+					const text = i === this.index ? `[${mark}${label}]` : ` ${mark}${label} `;
+					spans.push({ from: column, to: column + visibleWidth(text), index: i });
+					column += visibleWidth(text) + 1;
+					return i === this.index ? theme.bold(theme.fg("accent", text)) : theme.fg("dim", text);
 				})
 				.join(" ");
+			targets[lines.length] = { kind: "tabs", spans };
 			lines.push(`${INDENT}${tabs}`);
 		} else if (question.header) {
 			lines.push(`${INDENT}${theme.fg("accent", question.header)}`);
@@ -326,14 +394,19 @@ export class AskDialog {
 			const pointer = here ? theme.fg("accent", "›") : " ";
 			const label = here ? theme.bold(theme.fg("accent", option.label)) : option.label;
 			const tag = option.recommended ? theme.fg("success", "  recommended") : "";
+			targets[lines.length] = { kind: "option", index: i };
 			lines.push(`${INDENT}${pointer} ${theme.fg(chosen ? "accent" : "dim", box)} ${theme.fg("dim", `${i + 1}.`)} ${label}${tag}`);
 			if (option.description) {
-				for (const line of wrapTextWithAnsi(option.description, inner - 7)) lines.push(`${INDENT}       ${theme.fg("muted", line)}`);
+				for (const line of wrapTextWithAnsi(option.description, inner - 7)) {
+					targets[lines.length] = { kind: "option", index: i };
+					lines.push(`${INDENT}       ${theme.fg("muted", line)}`);
+				}
 			}
 		});
 		const onOwn = state.cursor === this.ownRow && this.focus !== "extra";
 		const ownLabel = this.options.length > 0 ? "Own answer:" : "Answer:";
 		const ownField = state.own.render(Math.max(10, inner - ownLabel.length - 6))[0] ?? "";
+		targets[lines.length] = { kind: "own", column: INDENT.length + 5 + ownLabel.length };
 		lines.push(
 			`${INDENT}${onOwn ? theme.fg("accent", "›") : " "} ${theme.fg(onOwn ? "accent" : "dim", "✎")} ${onOwn ? theme.bold(ownLabel) : theme.fg("muted", ownLabel)} ${ownField}`,
 		);
@@ -342,6 +415,7 @@ export class AskDialog {
 		if (prompt && (this.focus === "extra" || state.extra.getValue())) {
 			lines.push("");
 			lines.push(`${INDENT}${theme.fg(this.focus === "extra" ? "accent" : "muted", prompt)}`);
+			targets[lines.length] = { kind: "extra", column: INDENT.length };
 			lines.push(`${INDENT}${state.extra.render(inner)[0] ?? ""}`);
 		}
 
@@ -352,7 +426,7 @@ export class AskDialog {
 				: this.focus === "own"
 					? "type · enter confirm · ↑↓ choose · esc cancel"
 					: [
-							"↑↓ choose",
+							"↑↓/click choose",
 							question.multiSelect ? "space toggle" : undefined,
 							"enter confirm",
 							this.questions.length > 1 ? "tab/←→ question" : undefined,
@@ -362,6 +436,7 @@ export class AskDialog {
 							.join(" · ");
 		lines.push(`${INDENT}${theme.fg("dim", keys)}`);
 		lines.push(theme.fg("accent", "─".repeat(width)));
+		this.targets = targets;
 		return lines.map((line) => truncateToWidth(line, width));
 	}
 
