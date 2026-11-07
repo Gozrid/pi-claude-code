@@ -4,6 +4,7 @@
  * Writes its arguments to FAKE_AGY_RECORD (JSON) when that is set. A fixture line
  * {"write": path, "content": text} is not printed: after a pause (so the reader
  * has seen the lines before it) the file is written, as agy's edit tools would.
+ * A fixture line {"hang": true} waits until agy is stopped (a command it waits for).
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -15,6 +16,7 @@ if (process.env.FAKE_AGY_RECORD) {
 for (const line of readFileSync(process.env.FAKE_AGY_FIXTURE, "utf8").split("\n")) {
 	if (!line.trim()) continue;
 	const parsed = JSON.parse(line);
+	if (parsed.hang) await sleep(60_000);
 	if (parsed.write) {
 		await sleep(150);
 		writeFileSync(parsed.write, parsed.content);

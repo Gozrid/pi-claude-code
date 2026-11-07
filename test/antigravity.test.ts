@@ -421,3 +421,35 @@ test("agy's permission hook waits for the user as good as without a limit", asyn
 	const { HOOK_TIMEOUT } = await import("../extensions/pi-bridge/agy-gate.ts");
 	assert.ok(HOOK_TIMEOUT >= 7 * 24 * 3600);
 });
+
+test("Escape while agy waits for a command says in the chat which steps it ended", async () => {
+	const command = { name: "run_command", parameters: { CommandLine: "gh run watch 42" } };
+	const fixture = join(work, "fixture.jsonl");
+	const lines = [
+		{ event: "init", conversation_id: CONVERSATION, init: { model: "gemini-4-argon-high" } },
+		step(0, "DONE", "user_input"),
+		step(1, "ACTIVE", "tool", { tool_name: "run_command", tool_info: command }),
+		{ hang: true },
+	];
+	writeFileSync(fixture, `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`);
+	process.env.FAKE_AGY_FIXTURE = fixture;
+	const abort = new AbortController();
+	let stopped: string[] | undefined;
+	runtime.onTool = (event) => {
+		if (event.type === "start") abort.abort();
+	};
+	runtime.onToolsStopped = (descriptions) => {
+		stopped = descriptions;
+	};
+	try {
+		const model = { id: "gemini-4-argon", provider: "antigravity", api: "antigravity-cli:antigravity", reasoning: true } as any;
+		const stream = streamAntigravity(model, { messages: [prompt] } as any, { sessionId: SESSION, signal: abort.signal } as any);
+		for await (const _ of stream);
+		assert.equal((await stream.result()).stopReason, "aborted");
+		assert.equal(stopped?.length, 1);
+		assert.match(stopped![0], /gh run watch 42/);
+	} finally {
+		runtime.onTool = undefined;
+		runtime.onToolsStopped = undefined;
+	}
+});

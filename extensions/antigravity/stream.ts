@@ -475,7 +475,10 @@ export function streamAntigravity(
 				pushThinking(thinking, stepPositions.get(stepIndex));
 			};
 			/** Tool steps already announced, with the file content before an edit. */
-			const tools = new Map<number, { name: string; raw: string; detail: string; quiet: boolean; before?: string; path?: string }>();
+			const tools = new Map<
+				number,
+				{ name: string; raw: string; detail: string; quiet: boolean; before?: string; path?: string; done?: boolean }
+			>();
 			const denials: Denial[] = [];
 			let conversationId: string | undefined;
 			let contextTokens: number | undefined;
@@ -572,6 +575,7 @@ export function streamAntigravity(
 							}
 						}
 						if (step.state === "DONE" || step.state === "ERROR") {
+							tool.done = true;
 							const failed = step.state === "ERROR";
 							Object.assign(activity, { phase: "thinking", tool: undefined, detail: undefined });
 							report();
@@ -618,7 +622,13 @@ export function streamAntigravity(
 			for (const idx of [...textBlocks.keys()]) endText(idx);
 			for (const stepIndex of stepPositions.keys()) emitStepThinking(stepIndex);
 
-			if (options?.signal?.aborted) throw new Error("Request was aborted");
+			if (options?.signal?.aborted) {
+				// agy has no interrupt; the signal ended the tool steps still running with it, e.g. a
+				// background command agy waited for. The chat says which.
+				const stopped = [...tools.values()].filter((t) => !t.done).map((t) => (t.detail ? `${t.name} ${t.detail}` : t.name));
+				if (stopped.length > 0) runtime.onToolsStopped?.(stopped);
+				throw new Error("Request was aborted");
+			}
 
 			if (conversationId && key) {
 				const sessions = loadSessions();

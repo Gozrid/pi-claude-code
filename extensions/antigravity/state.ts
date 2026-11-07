@@ -62,6 +62,8 @@ export const runtime = {
 	onActivity: undefined as ((provider: string, activity: Activity | undefined) => void) | undefined,
 	/** Set by the extension to publish the tools the CLI runs (see TOOL_CHANNEL). */
 	onTool: undefined as ((event: ToolEvent) => void) | undefined,
+	/** Set by the extension: Escape ended agy while these tool steps still ran (e.g. commands it waited for). */
+	onToolsStopped: undefined as ((descriptions: string[]) => void) | undefined,
 	/** Set by the extension to publish the status again when a run reports new token counts. */
 	onUsage: undefined as (() => void) | undefined,
 	/** Actions agy was not allowed to take in the last run. */

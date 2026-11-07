@@ -42,6 +42,7 @@
 
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
 	ACTIVITY_CHANNEL,
 	type ActivityEvent,
@@ -96,6 +97,9 @@ const FALLBACK_MODELS: AgyModel[] = [{ id: "gemini-3.8-flash", name: "Gemini 3.8
 
 /** Provider that only exists to put "add another account" into /login. */
 const SETUP_PROVIDER_ID = "antigravity-cli-setup";
+
+/** Chat note: Escape ended agy while tool steps (e.g. a background command it waited for) still ran. */
+const STOPPED_MESSAGE = "antigravity-stopped";
 
 /** What pi stores after a /login: agy keeps its own sign-in, pi only needs a credential that never expires. */
 function cliCredentials() {
@@ -261,6 +265,13 @@ export default function (pi: ExtensionAPI) {
 
 	runtime.onUsage = () => publish();
 	runtime.onTool = (event) => pi.events.emit(TOOL_CHANNEL, event);
+	// The note lands after the aborted turn; agy learns it with the next prompt.
+	runtime.onToolsStopped = (descriptions) => {
+		const list = descriptions.map((d) => `"${d}"`).join(", ");
+		const content = `Antigravity was stopped; ${descriptions.length === 1 ? "this step was still running and ended" : "these steps were still running and ended"}: ${list}.`;
+		pi.sendMessage({ customType: STOPPED_MESSAGE, content, display: true }, { triggerTurn: false });
+	};
+	pi.registerMessageRenderer(STOPPED_MESSAGE, (message, _options, theme) => new Text(theme.fg("warning", `⚠ ${String(message.content)}`), 0, 0));
 	runtime.onActivity = (provider, activity) => pi.events.emit(ACTIVITY_CHANNEL, { provider, activity } satisfies ActivityEvent);
 	runtime.piTools = () => pi.getAllTools();
 	runtime.bridge = (provider) => {
