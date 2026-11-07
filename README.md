@@ -16,6 +16,7 @@ Extensions for [pi](https://pi.dev) in one package:
 - **image-paste** – attaches the images you paste (Ctrl+V), drag in or name by path in a prompt, so the model sees them directly
 - **work-status** – for every model: an animation in Claude Code style while a CLI provider works, a "✻ Cooked for 1m 12s" line after each answer, a working star in the terminal tab title, a macOS notification for long answers and a session title (and so tab name) written by the provider's smallest model
 - **commands** – general, useful commands for every model: `/clear`, `/effort`, `/export`
+- **ide** – connects pi to a JetBrains IDE (IntelliJ IDEA, WebStorm, Android Studio, …) or VS Code through their Claude Code plugin: the selection or open file stands above the editor and goes with the next message, Alt+K (or Cmd+Alt+K in the IDE) inserts a reference like `@src/foo.ts#L12-30`, and a running IDE without the plugin gets a hint
 
 Each one can be switched on and off on its own with `pi config`.
 
@@ -712,6 +713,24 @@ General commands, independent of the model:
 
 The Markdown export contains the prompts and answers, thinking (folded), tool calls with their arguments and results (folded), shell commands and the summaries of compactions – to read it later or to hand it to a new chat. pi handles its built-in `/export` before any extension command, so this one takes over Enter while the editor holds `/export …`; paths ending in `.html` or `.jsonl` are left to pi.
 
+## ide
+
+Connects pi to the IDE you work in, the way Claude Code does: the **Claude Code plugin** for JetBrains IDEs ("Claude Code [Beta]" – IntelliJ IDEA, WebStorm, PyCharm, Rider, Android Studio, …) and the Claude Code extension for VS Code (and Cursor, Windsurf) run a small MCP server in the IDE and announce it in `~/.claude/ide/<port>.lock`. pi connects (WebSocket, the lock file's token) to the IDE whose project holds pi's folder or lies inside it – the one whose terminal pi was started in first – and keeps looking every few seconds while none is connected. Works with every model.
+
+Above the editor:
+
+```
+⧉ IntelliJ IDEA  src/foo.ts:12-30 · 19 lines · goes with your next message · alt+k insert
+```
+
+- **Selection with the next message**: the selected lines with their text go with your next message as context (`<ide_selection>`), once per selection; without a selection the file open in the IDE is named (`<ide_context>`). The chat shows it as one line (`⧉ src/foo.ts:12-30 (19 lines) · IntelliJ IDEA`), the text with Ctrl+O. Selections over 20,000 characters go as a reference only. `/ide` switches this off and on (kept in `~/.pi/agent/ide.json`).
+- **Insert a reference**: `Alt+K` inserts `@src/foo.ts#L12-30` (or `@src/foo.ts` with nothing selected) into the editor; in the IDE, `Cmd+Alt+K` / "Send to Claude Code" does the same from there. Paths outside pi's folder stay absolute.
+- **Hint**: a supported IDE that runs without the plugin, or with it installed but no server running (switched off, or needs a restart), gets a line above the editor instead (`⧉ IntelliJ IDEA runs without the Claude Code plugin · …`); `/ide` hides it for good.
+
+`/ide` also connects to another IDE that has a lock file, or disconnects.
+
+The IDE plugins serve one client at a time: a Claude Code started in the IDE's terminal takes the connection over from pi (and pi from it). pi then leaves that IDE alone until `/ide` connects it again.
+
 ## Development
 
 ```bash
@@ -791,6 +810,11 @@ Layout:
 | `extensions/commands/index.ts` | `/clear`, `/effort`, `/export` |
 | `extensions/commands/effort-picker.ts` | effort slider for `/effort` |
 | `extensions/commands/export.ts`, `conversation.ts` | `/export` and the conversation as Markdown |
+| `extensions/ide/index.ts` | IDE connection: finding and connecting the IDE, the line above the editor, Alt+K, the context with the next message, `/ide` |
+| `extensions/ide/lockfiles.ts` | the IDE plugins' lock files and which IDE fits pi's folder |
+| `extensions/ide/connection.ts` | MCP client over WebSocket to the IDE: handshake, notifications, tool calls |
+| `extensions/ide/reference.ts` | selection → `@path#L12-30`, the label above the editor, the context for the model |
+| `extensions/ide/detect.ts` | running IDEs without (an active) Claude Code plugin, for the hint |
 | `extensions/shared/pi-mcp.ts` | pi's MCP servers from `mcp.json` in the shape the CLIs take |
 | `extensions/antigravity/mcp.ts` | mirror of the gemini folder with pi's MCP servers for agy |
 | `extensions/shared/brand.ts` | look per provider: colours, spinner, verbs, mascot |
