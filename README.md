@@ -379,6 +379,7 @@ One chart per account with a coloured line per limit (Claude: 5-hour session, we
 | `Tab` | switch between Accounts and Models |
 | `←` / `→` | time range: 5h, 24h, 7d, 30d |
 | `↑` / `↓`, PgUp / PgDn | scroll when the accounts don't fit |
+| mouse (fullscreen mode) | a click on a view or range tab picks it, the wheel scrolls, a click on `↑` / `↓ more` turns a page |
 | `r` | read the usage of all accounts again |
 | `Esc` / `q` | close |
 

@@ -10,14 +10,24 @@
  *   /usage   Accounts: one chart per account, a line per limit (5h session,
  *            weekly, per model …); Models: a stacked bar per time slot, a
  *            coloured segment per model. Tab switches the view, ←/→ the range,
- *            r reads fresh limits; the chat behind the dialog is darkened
+ *            r reads fresh limits; the chat behind the dialog is darkened.
+ *            The mouse (fullscreen mode): a click on a view or range tab picks
+ *            it, the wheel scrolls, a click on "↑" / "↓ more" turns a page
  *
  * Every 15 minutes while pi is idle it asks the providers for fresh usage of
  * all accounts, so accounts that are not selected are charted too.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, type OverlayOptions, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	Key,
+	matchesKey,
+	type OverlayOptions,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import {
 	type UsageAccount,
 	USAGE_CHANNEL,
@@ -171,6 +181,35 @@ export function renderModels(
 	return lines;
 }
 
+/** Gap between the view tabs and the range tabs in the head row. */
+const TAB_GAP = "   │   ";
+
+/**
+ * Where a tab row drawn by `choice` (each tab one column wider than its label on
+ * both sides, tabs joined by one space) puts its tabs, from column `start`.
+ */
+export function tabSpans(labels: readonly string[], start = 0): { from: number; to: number }[] {
+	let x = start;
+	return labels.map((label) => {
+		const span = { from: x, to: x + label.length + 2 };
+		x = span.to + 1;
+		return span;
+	});
+}
+
+/**
+ * What the head row's column `x` (inside the frame) hits: a view tab, a range
+ * tab, or nothing. The row is the view tabs, TAB_GAP, the range tabs.
+ */
+export function headTabAt(x: number, views: readonly string[], ranges: readonly string[]): { view: number } | { range: number } | undefined {
+	const viewSpans = tabSpans(views);
+	const view = viewSpans.findIndex((s) => x >= s.from && x < s.to);
+	if (view >= 0) return { view };
+	const rangeStart = (viewSpans.at(-1)?.to ?? 0) + TAB_GAP.length;
+	const range = tabSpans(ranges, rangeStart).findIndex((s) => x >= s.from && x < s.to);
+	return range >= 0 ? { range } : undefined;
+}
+
 /**
  * A rounded frame around `lines` (each `width - 4` wide), with `title` in the
  * top border and `hint` in the bottom one:
@@ -282,6 +321,9 @@ export default function (pi: ExtensionAPI) {
 					let range = DEFAULT_RANGE;
 					let view: View = "Accounts";
 					let scroll = 0;
+					/** Rows of the body shown last, and the row (inside the frame) of the "↑ / ↓ more" line, for the mouse. */
+					let room = 1;
+					let footRow = -1;
 					let refreshing = true;
 					const reread = () => {
 						refreshing = true;
@@ -352,7 +394,7 @@ export default function (pi: ExtensionAPI) {
 							const viewTabs = VIEWS.map((v) => choice(v, v === view)).join(" ");
 							const rangeTabs = RANGES.map((r, i) => choice(r.label, i === range)).join(" ");
 							const head = [
-								`${viewTabs}${theme.fg("dim", "   │   ")}${rangeTabs}${refreshing ? theme.fg("dim", "  reading…") : ""}`,
+								`${viewTabs}${theme.fg("dim", TAB_GAP)}${rangeTabs}${refreshing ? theme.fg("dim", "  reading…") : ""}`,
 								"",
 							];
 
@@ -386,17 +428,30 @@ export default function (pi: ExtensionAPI) {
 							});
 
 							const foot = [""];
-							const room = Math.max(3, Math.floor(tui.terminal.rows * 0.9) - head.length - foot.length - 2);
+							room = Math.max(3, Math.floor(tui.terminal.rows * 0.9) - head.length - foot.length - 2);
 							scroll = Math.max(0, Math.min(scroll, body.length - room));
 							const shown = body.slice(scroll, scroll + room);
 							if (body.length > room) {
 								foot[0] = theme.fg("dim", `${scroll > 0 ? "↑ " : "  "}${scroll + shown.length < body.length ? "↓ more" : ""}`);
-							}
+								footRow = head.length + shown.length;
+							} else footRow = -1;
 
 							return [...head, ...shown, ...foot].map((l) => pad(l, inner));
 					};
 
-					const hint = () => theme.fg("dim", "tab view · ←/→ range · ↑/↓ scroll · r read again · esc close");
+					const hint = () => theme.fg("dim", "tab view · ←/→ range · ↑/↓ scroll · r read again · esc close · click a tab");
+
+					const pickView = (next: View) => {
+						if (next === view) return;
+						view = next;
+						scroll = 0;
+						animate();
+					};
+					const pickRange = (next: number) => {
+						if (next === range) return;
+						range = next;
+						animate();
+					};
 
 					return {
 						render(width: number): string[] {
@@ -439,11 +494,28 @@ export default function (pi: ExtensionAPI) {
 							);
 						},
 						invalidate() {},
+						handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+							if (event.type === "wheel" && event.wheelDelta) {
+								scroll = Math.max(0, scroll + event.wheelDelta);
+								return { handled: true };
+							}
+							if (event.type !== "click" || event.button !== "left") return { handled: true, render: false };
+							// Row 0 is the top edge, column 0 the left one and 1 the space after it.
+							const row = event.y - 1;
+							const x = event.x - 2;
+							if (row === 0) {
+								const hit = headTabAt(x, VIEWS, RANGES.map((r) => r.label));
+								if (hit && "view" in hit) pickView(VIEWS[hit.view]);
+								else if (hit) pickRange(hit.range);
+							} else if (row === footRow) {
+								if (x < 2) scroll = Math.max(0, scroll - room);
+								else scroll += room;
+							}
+							return { handled: true };
+						},
 						handleInput(data: string) {
 							if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
-								view = VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length];
-								scroll = 0;
-								animate();
+								pickView(VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length]);
 							} else if (matchesKey(data, Key.left) || data === "h") {
 								if (range > 0) animate();
 								range = Math.max(0, range - 1);

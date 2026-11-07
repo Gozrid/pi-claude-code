@@ -10,7 +10,7 @@ import type { UsageAccount } from "../extensions/shared/agent-bus.ts";
 import { darkenBackdrop, shadeLine } from "../extensions/shared/backdrop.ts";
 import { chart, easeOut, plot, sequential, stackedBars, valueAt } from "../extensions/usage-graph/chart.ts";
 import { History, KEEP_MS, newSamples, parseHistory, RECORD_EVERY_MS, type Sample } from "../extensions/usage-graph/history.ts";
-import { accountViews, animationMs, frame, renderAccount, renderModels } from "../extensions/usage-graph/index.ts";
+import { accountViews, animationMs, frame, headTabAt, renderAccount, renderModels, tabSpans } from "../extensions/usage-graph/index.ts";
 import { Glide, OPENING_MS, openingTitle, RESIZE_MS, shownRows, TITLE_MS, UNFOLD_MS, unfoldedSize } from "../extensions/shared/opening.ts";
 import { bucketStart, ModelLog, modelViews, parseModelLog, sampleFromMessage, type TokenSample, totalTokens } from "../extensions/usage-graph/models.ts";
 
@@ -454,4 +454,23 @@ test("the open dialog glides to a new size instead of jumping", () => {
 	assert.ok(mid < 40 && mid > 10);
 	assert.equal(glide.at(20, 3000 + RESIZE_MS / 2), mid);
 	assert.equal(glide.at(20, 3000 + RESIZE_MS / 2 + RESIZE_MS), 20);
+});
+
+test("usage: a click on the head row hits the view and range tabs", () => {
+	assert.deepEqual(tabSpans(["5h", "24h"], 3), [
+		{ from: 3, to: 7 },
+		{ from: 8, to: 13 },
+	]);
+	const views = ["Accounts", "Models"];
+	const ranges = ["5h", "24h", "7d", "30d"];
+	// "[Accounts]  Models    │   [5h]  24h …"
+	assert.deepEqual(headTabAt(0, views, ranges), { view: 0 });
+	assert.deepEqual(headTabAt(9, views, ranges), { view: 0 });
+	assert.equal(headTabAt(10, views, ranges), undefined);
+	assert.deepEqual(headTabAt(11, views, ranges), { view: 1 });
+	assert.equal(headTabAt(20, views, ranges), undefined);
+	const rangeStart = 19 + "   │   ".length;
+	assert.deepEqual(headTabAt(rangeStart, views, ranges), { range: 0 });
+	assert.deepEqual(headTabAt(rangeStart + 5, views, ranges), { range: 1 });
+	assert.equal(headTabAt(200, views, ranges), undefined);
 });
