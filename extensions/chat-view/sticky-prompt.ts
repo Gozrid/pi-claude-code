@@ -8,6 +8,8 @@
  * out as it comes up, and scrolling back to the message lets it take its own
  * place in the chat again.
  *
+ * A click on the pinned copy scrolls the chat back to the message itself.
+ *
  * Regular mode leaves scrolling to the terminal, so there is nothing to pin to.
  *
  * Usage:
@@ -17,7 +19,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type Component, type OverlayHandle, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, type OverlayHandle, type TUI, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth } from "@earendil-works/pi-tui";
 import { pinnedRows, type Span } from "./sticky.ts";
 
 type Theme = ExtensionContext["ui"]["theme"];
@@ -35,6 +37,7 @@ interface ScrollViewLike extends Component {
 	readonly viewportHeight: number;
 	children: Component[];
 	getContentWidth(width: number): number;
+	scrollTo?(scrollTop: number): void;
 }
 
 function isScrollView(component: unknown): component is ScrollViewLike {
@@ -86,11 +89,17 @@ function userMessages(document: Component, width: number): (Span & { lines: stri
 }
 
 /** Draws the pinned copy at the top of the transcript; nothing while the message is in its place. */
-class StickyPrompt implements Component {
-	constructor(
-		private readonly tui: TUI,
-		private readonly theme: () => Theme,
-	) {}
+export class StickyPrompt implements Component {
+	/** Where the message drawn last starts in the transcript, for a click on it. */
+	private pinnedStart: number | undefined;
+
+	private readonly tui: TUI;
+	private readonly theme: () => Theme;
+
+	constructor(tui: TUI, theme: () => Theme) {
+		this.tui = tui;
+		this.theme = theme;
+	}
 
 	render(width: number): string[] {
 		const transcript = findTranscript(this.tui);
@@ -99,6 +108,7 @@ class StickyPrompt implements Component {
 		const contentWidth = transcript.getContentWidth(width);
 		const messages = userMessages(document, contentWidth);
 		const pinned = pinnedRows(messages, transcript.scrollTop, MAX_ROWS);
+		this.pinnedStart = pinned ? messages[pinned.index]!.start : undefined;
 		if (!pinned) return [];
 		const message = messages[pinned.index]!;
 		let lines = message.lines.map((line) => line.replace(OSC133, ""));
@@ -107,6 +117,15 @@ class StickyPrompt implements Component {
 			lines[MAX_ROWS - 1] = this.theme().bg("userMessageBg", this.theme().fg("dim", truncateToWidth("  …", contentWidth, "", true)));
 		}
 		return lines.slice(pinned.hiddenRows).map((line) => truncateToWidth(line, contentWidth));
+	}
+
+	/** A left click on the pinned copy scrolls the chat to the message; the wheel and the rest pass. */
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.button !== "left" || this.pinnedStart === undefined) return undefined;
+		if (event.type === "press" || event.type === "release") return { handled: true, render: false };
+		if (event.type !== "click") return undefined;
+		findTranscript(this.tui)?.scrollTo?.(this.pinnedStart);
+		return { handled: true };
 	}
 
 	invalidate(): void {}

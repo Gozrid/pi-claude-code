@@ -483,7 +483,7 @@ Changes to how the chat itself looks and behaves – for every model.
 
 ### Pinned user message (sticky prompt)
 
-When the user message scrolls out at the top, a copy of it stays at the top of the chat while the answer, thinking and tool output keep scrolling below – like `position: sticky` in HTML. When the next user message comes up from below while scrolling, it pushes the pinned one out at the top and takes its place; scrolling back to the message puts it back in its place in the chat. Long messages are pinned with their first 4 rows.
+When the user message scrolls out at the top, a copy of it stays at the top of the chat while the answer, thinking and tool output keep scrolling below – like `position: sticky` in HTML. When the next user message comes up from below while scrolling, it pushes the pinned one out at the top and takes its place; scrolling back to the message puts it back in its place in the chat. Long messages are pinned with their first 4 rows. A click on the pinned message scrolls the chat back to it.
 
 Only in pi's fullscreen mode (`tuiMode`, the default); in regular mode the terminal scrolls by itself, so there is nothing to pin to.
 
@@ -533,7 +533,7 @@ If the model thought or used tools before its answer, that goes into a framed wo
  │    ╭─ json
  │    │ 1 │ {
  │    │ 2 │   "name": "pi-claude-code",
- │    … 40 more lines · ctrl+o to expand
+ │    … 40 more lines · click or ctrl+o to expand
  │
  ├─ ✻ Thinking
  │  Now I can answer.
@@ -547,6 +547,7 @@ If the model thought or used tools before its answer, that goes into a framed wo
 - Consecutive thoughts stand under one "✻ Thinking", consecutive tool calls (the CLI providers' `⏺`/`⎿` blocks, see [Tool calls](#tool-calls)) under one "⚙ Tools" with the number of calls
 - Text between the steps appears as "✎ Note" in the work part; what comes after the last step is the answer. While the message is still being written, all text shows as a note; it moves under "Answer" only once the message is done
 - Messages without thinking and tools look as before; hidden thinking (Ctrl+T) shows only the heading
+- With the mouse (pi's fullscreen mode), a click on a thought shows or hides just that one; pi's thinking toggle sets them all alike again
 
 #### Tool calls
 
@@ -560,7 +561,7 @@ The tool calls of the CLI providers (**claude-code**, **antigravity**) show as o
    ╭─
    │ ok 1 - parses
    │ Error: expected 2, got 3
-   … 4 more lines · ctrl+o to expand
+   … 4 more lines · click or ctrl+o to expand
  ⏺ FreeCAD › execute_code
    ╭─ python
    │ import FreeCAD
@@ -576,7 +577,7 @@ The tool calls of the CLI providers (**claude-code**, **antigravity**) show as o
 - **Header**: built-in tools with their description, path (relative to the project), pattern or range; MCP tools as `Server › tool` (`mcp__freecad__execute_code` → `FreeCAD › execute_code`) with the document or object they work on. A result that does not follow its call directly names its tool
 - **Code** highlighted: Bash commands, code arguments of MCP tools (`code`, `script`, `sql`, … – Python for FreeCAD) as code blocks instead of a JSON string with `\n`; the other arguments as indented JSON
 - **Results**: short output in the header line; longer output below it. JSON indented, lists of objects as a table (plain fields first, at most 6 columns), files read highlighted by type with line numbers, edits as coloured diffs, images inline (where the terminal can draw them, otherwise their path), error results red and error lines in output (tracebacks, `Error:` …) too
-- **Collapsed**: details show their first 8 rows and how many follow; pi's Ctrl+O (`app.tools.expand`), which expands pi's own tool output, expands them too
+- **Collapsed**: details show their first 8 rows and how many follow; pi's Ctrl+O (`app.tools.expand`), which expands pi's own tool output, expands them too; a click on a block (pi's fullscreen mode) expands or collapses just that one, until Ctrl+O sets them all alike again
 - Only the display: the agents get their tool results unchanged, and when a CLI session has to be rebuilt from pi's transcript only the header lines go along. The message keeps at most 300 lines per call; with `/group off` the blocks show as plain Markdown, uncollapsed
 
 MCP tools of pi's own models (`mcp__<server>__<tool>` from pi's `mcp.json`) look the same inside pi's tool box: `Server › tool` with what it works on, code highlighted, arguments as indented JSON, the result as a table, JSON or text, collapsed until Ctrl+O; pi draws their images below. Tools that bring their own renderer keep it.
@@ -643,7 +644,7 @@ pi still does the searching, selecting, Tab and Enter; only where and how the li
 After a long round (90 seconds or more from sending to its end), the answer also shows in a framed box right above the editor, so it reads without scrolling the chat. Its bottom edge is the editor's top border, like the history list's.
 
 ```
-╭─ ● Answer · 2m 10s ──────────────── ↑ 4 more ─╮
+╭─ ● Answer · 2m 10s ───────────── ↑ 4 more  ✕ ─╮
 │ The list is done, committed and pushed. …     │
 ╰────────────────────── ↓ 24 more · esc close ───╯
  _
@@ -652,7 +653,7 @@ After a long round (90 seconds or more from sending to its end), the answer also
 
 - Only the answer, not thinking, tools or notes; all of it, with code blocks as in the chat
 - As high as the answer, at most two thirds of the terminal; beyond that it scrolls: Shift+↑/↓ by row, Page Up/Down (fn+↑/↓ on a Mac) by page, or with the mouse wheel while the pointer is over it (in pi's fullscreen mode; the chat behind it stays put)
-- Esc or your next message closes it; the chat behind it keeps the whole answer
+- Esc, a click on the ✕ in its top edge or your next message closes it; the chat behind it keeps the whole answer
 - While the history or command list is open, the box makes room for it and comes back when the list closes
 - Not for stopped or failed rounds
 - `PI_ANSWER_BOX_AFTER=<seconds>` sets what counts as a long round (default 90)

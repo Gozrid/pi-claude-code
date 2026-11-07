@@ -4,7 +4,8 @@
  * How the CLI providers' tool calls and results (see shared/tool-lines.ts) look
  * in the work part of a grouped message: the header line with the tool and what
  * it works on, the details below it indented and cut after a few rows until the
- * tool output is expanded (pi's Ctrl+O, the same key as for pi's own tools).
+ * tool output is expanded (pi's Ctrl+O, the same key as for pi's own tools, or
+ * a click on the block in fullscreen mode, see grouped-messages.ts).
  * Code is highlighted, file contents carry line numbers, error lines in plain
  * output are red and images show inline where the terminal can draw them.
  * Only the display changes; the message text stays as the provider wrote it.
@@ -166,7 +167,7 @@ export function toolBlock(text: string, { theme, markdownTheme, transform, expan
 
 	const bodyTheme = toolTheme(markdownTheme, theme);
 	const hint = (hidden: number) =>
-		`${theme.fg("dim", `… ${hidden} more ${hidden === 1 ? "line" : "lines"} · `)}${keyHint("app.tools.expand", "to expand")}`;
+		`${theme.fg("dim", `… ${hidden} more ${hidden === 1 ? "line" : "lines"} · click or `)}${keyHint("app.tools.expand", "to expand")}`;
 	for (const part of bodyParts(body)) {
 		const child =
 			part.kind === "image"

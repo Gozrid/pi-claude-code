@@ -43,6 +43,17 @@ export function clampOffset(offset: number, total: number, height: number): numb
  * for other mouse events. The box keeps every wheel event over it, also at its
  * top or bottom, so the chat behind it does not scroll instead.
  */
+/** The close button drawn at the right end of the box's top edge: "✕ ─╮". */
+export const CLOSE_BUTTON = "✕";
+
+/**
+ * Whether a mouse event is a left click on the close button: the top row, on
+ * the ✕ or the cell next to it, of a box `width` wide.
+ */
+export function closeClicked(event: { type: string; button?: string; x: number; y: number }, width: number): boolean {
+	return event.type === "click" && event.button === "left" && event.y === 0 && event.x >= width - 5 && event.x <= width - 3;
+}
+
 export function wheelRows(event: { type: string; wheelDelta?: number }): number | undefined {
 	return event.type === "wheel" ? (event.wheelDelta ?? 0) : undefined;
 }

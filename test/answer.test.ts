@@ -4,7 +4,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clampOffset, contentHeight, formatDuration, roundAnswer, wheelRows } from "../extensions/chat-view/answer.ts";
+import { clampOffset, closeClicked, contentHeight, formatDuration, roundAnswer, wheelRows } from "../extensions/chat-view/answer.ts";
+import { frameTop } from "../extensions/chat-view/editor-frame.ts";
 
 const text = (t: string) => ({ type: "text", text: t });
 const assistant = (content: unknown[], stopReason = "stop") => ({ role: "assistant", content, stopReason });
@@ -47,4 +48,15 @@ test("the mouse wheel over the box scrolls the box, not the chat; other mouse ev
 	assert.equal(wheelRows({ type: "wheel", wheelDelta: -1 }), -1);
 	assert.equal(wheelRows({ type: "click" }), undefined, "clicks still select text");
 	assert.equal(wheelRows({ type: "drag" }), undefined);
+});
+
+test("a left click on the ✕ in the top edge closes the box; elsewhere it does not", () => {
+	const top = frameTop((t) => t, 40, "● Answer", "✕");
+	const x = [...top].indexOf("✕");
+	assert.equal(x, 36, "the ✕ sits before the corner");
+	assert.ok(closeClicked({ type: "click", button: "left", x, y: 0 }, 40));
+	assert.ok(!closeClicked({ type: "click", button: "left", x, y: 1 }, 40), "not in the text");
+	assert.ok(!closeClicked({ type: "click", button: "left", x: 10, y: 0 }, 40), "not on the title");
+	assert.ok(!closeClicked({ type: "click", button: "right", x, y: 0 }, 40));
+	assert.ok(!closeClicked({ type: "press", button: "left", x, y: 0 }, 40));
 });

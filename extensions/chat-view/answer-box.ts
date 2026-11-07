@@ -5,8 +5,8 @@
  * shows in a framed box right above the editor, its bottom edge the editor's top
  * border, so it reads without scrolling the chat. The box is at most two thirds of
  * the terminal high and scrolls: shift+↑/↓ by row, page up/down by page, and the
- * mouse wheel over it (pi's fullscreen mode) instead of the chat. Esc or
- * the next message closes it; the chat behind it keeps the whole answer. While
+ * mouse wheel over it (pi's fullscreen mode) instead of the chat. Esc, a
+ * click on the ✕ in its top edge or the next message closes it; the chat behind it keeps the whole answer. While
  * the prompt history or the command list is open, the box gives way to it.
  *
  * PI_ANSWER_BOX_AFTER=<seconds> sets what counts as long (default 90).
@@ -14,7 +14,7 @@
 
 import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, Markdown, matchesKey, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { clampOffset, contentHeight, formatDuration, LONG_ROUND_MS, roundAnswer, wheelRows } from "./answer.ts";
+import { CLOSE_BUTTON, clampOffset, closeClicked, contentHeight, formatDuration, LONG_ROUND_MS, roundAnswer, wheelRows } from "./answer.ts";
 import { barCodeBlocks } from "./code-blocks.ts";
 import { borderColor, editorHasFocus, type FrameBottom, frameRow, frameTop, joinEditor } from "./editor-frame.ts";
 
@@ -88,13 +88,18 @@ export function answerBox(pi: ExtensionAPI, others: OtherFrames) {
 					offset = clampOffset(offset, lines.length, height);
 					below = lines.length - offset - height;
 					const title = `${uiTheme.style("● Answer", { fg: "accent", bold: true })}${uiTheme.fg("dim", ` · ${box.title}`)}`;
-					const above = offset > 0 ? uiTheme.fg("dim", `↑ ${offset} more`) : "";
+					const close = uiTheme.fg("dim", CLOSE_BUTTON);
+					const above = offset > 0 ? `${uiTheme.fg("dim", `↑ ${offset} more`)}  ${close}` : close;
 					return [
 						frameTop(color, width, title, above),
 						...lines.slice(offset, offset + height).map((line) => frameRow(color, width, line)),
 					];
 				},
 				handleMouse(event: TuiMouseEvent) {
+					if (showing() && closeClicked(event, event.width)) {
+						close();
+						return { handled: true };
+					}
 					const rows = showing() ? wheelRows(event) : undefined;
 					if (rows === undefined) return undefined;
 					scroll(rows);

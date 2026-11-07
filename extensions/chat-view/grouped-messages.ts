@@ -11,6 +11,11 @@
  * The tool calls show as tool blocks (see tool-blocks.ts): details collapsed
  * until pi's Ctrl+O expands the tool output.
  *
+ * The mouse (pi's fullscreen mode): a click on a tool block expands or collapses
+ * just that block, a click on a thinking section shows or hides just that
+ * thought, as pi does for its own tools and thinking. Ctrl+O and pi's thinking
+ * toggle set every block again.
+ *
  * pi has no hook for this, so the extension finds pi's AssistantMessageComponent
  * in the TUI and wraps its layout; without it, nothing changes.
  *
@@ -21,10 +26,10 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type Component, Markdown, Spacer, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, Container, Markdown, MouseRegion, Spacer, type TUI, type TuiMouseEvent, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { barCodeBlocks } from "./code-blocks.ts";
 import { groupMessage, type Section } from "./grouping.ts";
-import { toolBlock } from "./tool-blocks.ts";
+import { splitToolBlock, toolBlock } from "./tool-blocks.ts";
 
 type Theme = ExtensionContext["ui"]["theme"];
 
@@ -32,6 +37,8 @@ type Theme = ExtensionContext["ui"]["theme"];
 const WIDGET = "grouped-messages";
 /** pi's own layout, kept on the class so a reloaded extension wraps it, not an earlier wrapper. */
 const ORIGINAL = Symbol.for("pi-claude-code.chat-view.updateContent");
+/** Tool blocks of a message expanded or collapsed by a click, apart from Ctrl+O: block key → expanded. */
+const TOOL_OVERRIDES = Symbol.for("pi-claude-code.chat-view.toolOverrides");
 
 /** The fields of pi's AssistantMessageComponent the layout uses. */
 interface AssistantMessageLike extends Component {
@@ -45,6 +52,9 @@ interface AssistantMessageLike extends Component {
 	updateContent(message: unknown, isStreaming?: boolean): void;
 	/** pi calls this on Ctrl+O for every component in the chat that has it. */
 	setExpanded?(expanded: boolean): void;
+	/** Thinking runs shown or hidden by a click, apart from pi's setting; pi clears it when the setting changes. */
+	thinkingVisibilityOverrides?: Map<number, boolean>;
+	[TOOL_OVERRIDES]?: Map<string, boolean>;
 }
 
 type PatchedProto = AssistantMessageLike & { [ORIGINAL]?: AssistantMessageLike["updateContent"] };
@@ -95,6 +105,20 @@ class Prefixed implements Component {
 	}
 }
 
+/** A left click: the mouse toggles what was clicked. */
+const isClick = (event: TuiMouseEvent) => event.type === "click" && event.button === "left";
+
+/** Components stacked as one, so a click anywhere on them reaches one handler. */
+function stack(parts: Component[], onClick: () => void): Component {
+	const box = new Container();
+	for (const part of parts) box.addChild(part);
+	return new MouseRegion(box, (event) => {
+		if (!isClick(event)) return undefined;
+		onClick();
+		return { handled: true };
+	});
+}
+
 /** pi's Markdown transform chain, as AssistantMessageComponent applies it. */
 function transform(self: AssistantMessageLike, messageType: string) {
 	return (markdown: string, availableWidth: number) => {
@@ -128,23 +152,51 @@ function layout(
 	const markdown = (text: string, type: string, style?: ConstructorParameters<typeof Markdown>[4]) =>
 		new Markdown(text, 0, 0, self.markdownTheme, style, { transform: transform(self, type) });
 
+	const relayout = () => {
+		if (self.lastMessage) self.updateContent(self.lastMessage);
+	};
+	const toolOverrides = (self[TOOL_OVERRIDES] ??= new Map());
+	let thinkingRun = 0;
+
 	const parts: Component[] = [new Spacer(1)];
 	work.forEach((section: Section, i) => {
 		const corner = i === 0 ? "╭" : "├";
 		if (i > 0) parts.push(new Rows(() => [`${pad}${frame("│")}`]));
 		if (section.kind === "thinking") {
-			const hidden = self.hideThinkingBlock;
-			parts.push(heading(corner, theme.style("✻ Thinking", { fg: "thinkingText", italic: true }) + (hidden ? theme.fg("dim", " · hidden") : "")));
+			const run = thinkingRun++;
+			const hidden = self.thinkingVisibilityOverrides?.get(run) ?? self.hideThinkingBlock;
+			const thought: Component[] = [
+				heading(corner, theme.style("✻ Thinking", { fg: "thinkingText", italic: true }) + (hidden ? theme.fg("dim", " · hidden") : "")),
+			];
 			if (!hidden) {
-				parts.push(
+				thought.push(
 					body(markdown(section.texts.join("\n\n"), "assistant-thinking", { color: (t) => theme.fg("thinkingText", t), italic: true })),
 				);
 			}
+			parts.push(
+				stack(thought, () => {
+					(self.thinkingVisibilityOverrides ??= new Map()).set(run, !hidden);
+					relayout();
+				}),
+			);
 		} else if (section.kind === "tools") {
 			const count = section.calls === 1 ? "1 call" : `${section.calls} calls`;
 			parts.push(heading(corner, `${theme.style("⚙ Tools", { fg: "toolTitle", bold: true })}${theme.fg("dim", ` · ${count}`)}`));
-			const options = { theme, markdownTheme: self.markdownTheme, transform: transform(self, "assistant"), expanded };
-			for (const text of section.texts) for (const part of toolBlock(text, options)) parts.push(body(part));
+			section.texts.forEach((text, j) => {
+				const key = `${i}:${j}`;
+				const open = toolOverrides.get(key) ?? expanded;
+				const options = { theme, markdownTheme: self.markdownTheme, transform: transform(self, "assistant"), expanded: open };
+				const block = toolBlock(text, options).map(body);
+				// Only blocks with details have something to expand.
+				if (!splitToolBlock(text).body) parts.push(...block);
+				else
+					parts.push(
+						stack(block, () => {
+							toolOverrides.set(key, !open);
+							relayout();
+						}),
+					);
+			});
 		} else {
 			parts.push(heading(corner, theme.fg("muted", "✎ Note")));
 			parts.push(body(markdown(section.text, "assistant")));
@@ -194,6 +246,8 @@ export function groupedMessages(pi: ExtensionAPI) {
 			for (const part of [...parts, ...extra]) this.contentContainer.addChild(part);
 		};
 		proto.setExpanded = function (this: AssistantMessageLike) {
+			// Ctrl+O sets every block of the chat again, also those clicked open or shut.
+			this[TOOL_OVERRIDES]?.clear();
 			if (this.lastMessage) this.updateContent(this.lastMessage);
 		};
 		patched = proto;
