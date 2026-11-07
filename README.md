@@ -12,7 +12,7 @@ Extensions for [pi](https://pi.dev) in one package:
 - **permission-retry** – when a CLI agent was not allowed to do something, asks how to allow it and retries
 - **provider-logo** – shows the logo of the selected model's provider in the middle of the empty chat
 - **chat-crab** – a tiny Clawd (Gravi for Antigravity) above the editor that acts out what the agent is doing
-- **chat-view** – changes to the chat itself, for every model: keeps the user's message pinned at the top while the answer and thinking scroll below it, shows the keys for steering and queueing (including steer now) with the waiting messages while the agent works, groups thinking and tool calls so the answer stands apart, shows tool calls readably – the CLI agents' and the MCP tools of pi's own models (highlighted code, diffs, tables, file contents with line numbers, images, errors in red, long output collapsed until Ctrl+O), draws code blocks without the ``` fences, turns Mermaid flowcharts too wide for the chat and asks the model to redraw what still does not fit, lists the loaded extensions in the empty chat, opens the session's earlier prompts as a list with ↑, shows the suggestions for /commands and files in a frame above the editor, after a long round shows the answer in a scrollable box above the editor, and lets the editor grow and shrink smoothly
+- **chat-view** – changes to the chat itself, for every model: keeps the user's message pinned at the top while the answer and thinking scroll below it, shows the keys for steering and queueing (including steer now) with the waiting messages while the agent works, groups thinking and tool calls so the answer stands apart, shows tool calls readably – the CLI agents' and the MCP tools of pi's own models (highlighted code, diffs, tables, file contents with line numbers, images, errors in red, long output collapsed until Ctrl+O), draws code blocks without the ``` fences, turns Mermaid flowcharts too wide for the chat and asks the model to redraw what still does not fit, lists the loaded extensions in the empty chat, opens the session's earlier prompts as a list with ↑, shows the suggestions for /commands and files in a frame above the editor, marks shell commands in the editor (`!` purple borders, `!!` grey text, a hint where the output goes), after a long round shows the answer in a scrollable box above the editor, and lets the editor grow and shrink smoothly
 - **image-paste** – attaches the images you paste (Ctrl+V), drag in or name by path in a prompt, so the model sees them directly
 - **work-status** – for every model: an animation in Claude Code style while a CLI provider works, a "✻ Cooked for 1m 12s" line after each answer, a working star in the terminal tab title, a macOS notification for long answers and a session title (and so tab name) written by the provider's smallest model
 - **commands** – general, useful commands for every model: `/clear`, `/effort`, `/export`
@@ -658,6 +658,21 @@ After a long round (90 seconds or more from sending to its end), the answer also
 - Not for stopped or failed rounds
 - `PI_ANSWER_BOX_AFTER=<seconds>` sets what counts as a long round (default 90)
 
+### Shell mode
+
+pi runs a prompt starting with `!` as a shell command: with `!` its output goes to the model with your next message, with `!!` it stays with you. The editor shows which one it is:
+
+```
+────────────────────────────────────────────────
+!git status            ! shell · output goes to the AI
+────────────────────────────────────────────────
+```
+
+- `!`: the editor's borders turn purple – a bright wave runs along them from the left; when the `!` goes, the old colour sweeps back in from the right
+- `!!`: the same, and the text turns grey, since the output stays out of the model's sight
+- A short grey hint at the right end of the last text row says where the output goes (on the bottom border when the row is too full)
+- `PI_SHELL_MODE_VIEW=0` leaves the editor as pi draws it; `PI_HISTORY_STATIC=1` turns the sweep off
+
 ### Editor height
 
 When the editor gets more or fewer rows – a new line, a long prompt from the history list, sending – it grows or shrinks one row at a time instead of jumping. While it grows, the rows around the cursor show; while it shrinks, empty rows fold away.
@@ -814,6 +829,7 @@ Layout:
 | `extensions/chat-view/editor-frame.ts` | frames above the editor that close into its top border |
 | `extensions/chat-view/answer-box.ts`, `answer.ts` | answer of a long round in a scrollable box above the editor |
 | `extensions/chat-view/editor-height.ts` | editor grows and shrinks row by row |
+| `extensions/chat-view/shell-mode.ts` | `!` / `!!` in the editor: purple borders with a sweep, grey text, the hint |
 | `extensions/image-paste/index.ts` | attach image files named in a prompt to the message |
 | `extensions/image-paste/paths.ts` | find image paths in the prompt (escaped, quoted, plain spaces, `file://`, `~`) |
 | `extensions/work-status/index.ts` | duration line, tab title, notifications, session titles |

@@ -23,6 +23,8 @@
  *     editor instead of below it (see command-list.ts)
  *   - answer box: after a long round the answer in a scrollable box above the editor
  *     (see answer-box.ts; PI_ANSWER_BOX_AFTER)
+ *   - shell mode: ! and !! turn the editor's borders purple with a sweep, !! greys the
+ *     text, and a grey hint says where the output goes (see shell-mode.ts; PI_SHELL_MODE_VIEW=0)
  *   - editor height: the editor grows and shrinks row by row instead of jumping
  *     (see editor-height.ts; PI_EDITOR_STATIC=1)
  */
@@ -37,6 +39,7 @@ import { mcpTools } from "./mcp-tools.ts";
 import { mermaidDiagrams } from "./mermaid.ts";
 import { messageQueue } from "./message-queue.ts";
 import { promptHistory } from "./prompt-history.ts";
+import { shellModeView } from "./shell-mode.ts";
 import { stickyPrompt } from "./sticky-prompt.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -46,6 +49,8 @@ export default function (pi: ExtensionAPI) {
 	mcpTools(pi);
 	mermaidDiagrams(pi);
 	extensionList(pi);
+	// Before editorHeight, so its wrapper sees the editor's own rows.
+	shellModeView(pi);
 	editorHeight(pi);
 	// Last, so their widgets sit right above the editor; the box gives way to the lists.
 	const history = promptHistory(pi);
