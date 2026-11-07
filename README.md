@@ -705,7 +705,7 @@ General commands, independent of the model:
 | Command | Effect |
 |---|---|
 | `/clear` | start a new session (like `/new`, under the name Claude Code uses) |
-| `/effort [low\|medium\|high\|xhigh\|max]` | set the effort; without an argument as a slider (←/→, Enter applies, Esc cancels). Only levels the active model supports. Corresponds to pi's thinking level (Option+T); for Claude CLI models → `claude --effort` |
+| `/effort [low\|medium\|high\|xhigh\|max]` | set the effort; without an argument as a slider (←/→, Enter applies, Esc cancels; a click picks a level, a second click or a double click applies it, the wheel moves). Only levels the active model supports. Corresponds to pi's thinking level (Option+T); for Claude CLI models → `claude --effort` |
 | `/export` | the whole conversation as Markdown – pick *Copy to clipboard* or *Save as Markdown file* |
 | `/export copy` | copy it right away |
 | `/export file [path]` | save it (default: `pi-<session>-<time>.md` in the working directory) |
