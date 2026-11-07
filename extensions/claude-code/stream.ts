@@ -299,13 +299,169 @@ export function dropLiveRun(): void {
 	stopLive(live);
 }
 
-function stopLive(live: LiveRun): void {
+/** Stops the kept claude process, whatever it is kept for (session ends, /claude-new). */
+export function stopLiveRun(options: { report?: boolean } = {}): void {
+	const live = runtime.live;
+	if (!live) return;
+	runtime.live = undefined;
+	stopLive(live, options);
+}
+
+/** Asks claude to stop its current step, as Escape does in Claude Code; tools in flight end as cancelled. */
+function interrupt(live: LiveRun): void {
+	controlRequest(live, { subtype: "interrupt" });
+}
+
+function controlRequest(live: LiveRun, request: Record<string, unknown>): void {
+	try {
+		live.child.stdin.write(
+			`${JSON.stringify({ type: "control_request", request_id: `pi-${request.subtype}-${Date.now()}`, request })}\n`,
+		);
+	} catch {}
+}
+
+/**
+ * Ends a claude process: first its current step (cleanly, not killed), then its
+ * input; signals only follow when it does not end by itself. Its background
+ * tasks end with it; pi says so in the chat (unless `report` is false).
+ */
+function stopLive(live: LiveRun, { report = true }: { report?: boolean } = {}): void {
+	if (live.idleTimer) clearTimeout(live.idleTimer);
+	const stopped = [...live.tasks.values()];
+	live.tasks.clear();
 	live.closing = true;
+	interrupt(live);
 	try {
 		live.child.stdin.end();
 	} catch {}
-	stopClaude(live.child, "SIGTERM");
-	setTimeout(() => stopClaude(live.child, "SIGKILL"), 3000).unref();
+	// With its input closed claude still waits for its background tasks; these end now.
+	setTimeout(() => stopClaude(live.child, "SIGTERM"), stopped.length > 0 ? 1000 : 3000).unref();
+	setTimeout(() => stopClaude(live.child, "SIGKILL"), 8000).unref();
+	if (report && stopped.length > 0) runtime.onTasksStopped?.(stopped);
+}
+
+// =============================================================================
+// Background tasks
+// =============================================================================
+//
+// claude's background tasks (shell commands with run_in_background, background
+// subagents, monitors) live in its process. While some run, the process stays
+// after the turn's result with its input open ("idle"), and the next prompt
+// goes into it instead of a new claude. When a task ends, claude starts a turn
+// on its own; pi is asked for a turn that shows it (runtime.onWake) and that
+// turn reads on without sending anything. A claude whose tasks are all done
+// ends after that turn, or after IDLE_GRACE_MS if it starts none.
+//
+// A claude that has to go anyway (another model provider, session or launch
+// setting, /claude-new, pi closing) is stopped cleanly; its tasks end with it
+// and pi says so in the chat (runtime.onTasksStopped).
+
+/** How long an idle claude whose background tasks are all done may take to start its turn about them. */
+const IDLE_GRACE_MS = 10_000;
+
+/** How long claude may take to end its step after Escape before it is signalled. */
+const ABORT_GRACE_MS = 5000;
+
+/** Follows claude's background tasks, and notices when an idle claude starts a turn on its own. */
+function observe(live: LiveRun, line: string): void {
+	if (!live.idle && !line.includes("background_tasks_changed")) return;
+	let msg: any;
+	try {
+		msg = JSON.parse(line);
+	} catch {
+		return;
+	}
+	if (msg.type === "system" && msg.subtype === "background_tasks_changed" && Array.isArray(msg.tasks)) {
+		live.tasks = new Map(
+			msg.tasks.map((t: any) => [String(t.task_id), String(t.description || t.task_type || t.task_id)] as [string, string]),
+		);
+	}
+	if (!live.idle || live.woke || live.closing) return;
+	if (msg.type === "system" && msg.subtype === "task_notification") {
+		if (typeof msg.summary === "string" && msg.summary.trim()) live.notices.push(msg.summary.trim());
+	} else if (
+		msg.type === "stream_event" ||
+		msg.type === "assistant" ||
+		(msg.type === "system" && msg.subtype === "init")
+	) {
+		live.woke = true;
+		if (live.idleTimer) clearTimeout(live.idleTimer);
+		live.idleTimer = undefined;
+		const text = live.notices.length > 0 ? live.notices.join("\n") : "A background task of Claude Code ended.";
+		live.notices = [];
+		live.wakeTexts.add(text);
+		runtime.onWake?.(live.provider, text);
+		return;
+	}
+	scheduleIdleEnd(live);
+}
+
+/** An idle claude with no background tasks left gets a moment to start its turn about them, then ends. */
+function scheduleIdleEnd(live: LiveRun): void {
+	if (!live.idle || live.woke || live.tasks.size > 0 || live.idleTimer) return;
+	live.idleTimer = setTimeout(() => {
+		live.idleTimer = undefined;
+		if (runtime.live === live && live.idle && !live.woke && live.tasks.size === 0) stopLiveRun();
+	}, IDLE_GRACE_MS);
+	live.idleTimer.unref?.();
+}
+
+/** The turn is over but background tasks run on: claude stays, idle, for them and the next prompt. */
+function keepIdle(live: LiveRun): void {
+	live.idle = true;
+	live.woke = false;
+	live.notices = [];
+	// Lines that came after the result were seen while the turn still read; look at them again.
+	for (const line of [...live.buffer]) observe(live, line);
+	scheduleIdleEnd(live);
+}
+
+/** stdout lines of claude, queued until a turn reads them; `observe` sees each at once. */
+function lineReader(live: () => LiveRun | undefined, rl: ReturnType<typeof createInterface>, buffer: string[]) {
+	let waiter: ((r: IteratorResult<string>) => void) | undefined;
+	let done = false;
+	rl.on("line", (line) => {
+		const run = live();
+		if (run) observe(run, line);
+		if (waiter) {
+			const w = waiter;
+			waiter = undefined;
+			w({ value: line, done: false });
+		} else buffer.push(line);
+	});
+	rl.on("close", () => {
+		done = true;
+		waiter?.({ value: undefined, done: true });
+		waiter = undefined;
+	});
+	const lines: AsyncIterator<string> = {
+		next: () => {
+			if (buffer.length > 0) return Promise.resolve({ value: buffer.shift()!, done: false });
+			if (done) return Promise.resolve({ value: undefined, done: true });
+			return new Promise((resolve) => {
+				waiter = resolve;
+			});
+		},
+		return: async () => {
+			rl.close();
+			buffer.length = 0;
+			return { value: undefined, done: true };
+		},
+	};
+	return lines;
+}
+
+/**
+ * The CLI arguments a running claude keeps: all but the model and the permission
+ * mode, which change through control requests, and the session it resumed.
+ */
+function launchSignature(args: string[]): string {
+	const kept: string[] = [];
+	for (let i = 0; i < args.length; i++) {
+		if (["--model", "--permission-mode", "--resume"].includes(args[i])) i++;
+		else kept.push(args[i]);
+	}
+	return JSON.stringify(kept);
 }
 
 // =============================================================================
@@ -389,23 +545,6 @@ export function streamClaudeCode(
 
 			// A steer split the last answer: this turn answers it by reading on in the same claude process.
 			const steered = pending.filter((m) => m.role === "user").map(userText);
-			let live = runtime.live;
-			if (
-				live &&
-				!(
-					live.detached &&
-					live.provider === model.provider &&
-					live.key === key &&
-					steered.length > 0 &&
-					steered.every((t) => live!.steers.has(t))
-				)
-			) {
-				runtime.live = undefined;
-				stopLive(live);
-				live = undefined;
-			}
-			/** Steers this turn answers; claude's echo of them is no reason to split again. */
-			const expected = new Set(live ? steered : []);
 			const args = [
 				"-p",
 				"--input-format",
@@ -440,12 +579,57 @@ export function streamClaudeCode(
 			const extra = process.env.PI_CLAUDE_EXTRA_ARGS?.trim();
 			if (extra) args.push(...extra.split(/\s+/));
 
+			// The claude kept from the last turn: read on in it (a steer split the answer, or it started a
+			// turn on its own), send it this turn's prompt (idle with background tasks), or stop it.
+			let live = runtime.live;
+			const sameRun =
+				live !== undefined &&
+				!live.closing &&
+				live.provider === model.provider &&
+				live.key === key &&
+				live.child.exitCode === null &&
+				live.child.signalCode === null;
+			let reuse: "read" | "send" | undefined;
+			if (sameRun && live!.detached && steered.length > 0 && steered.every((t) => live!.steers.has(t))) reuse = "read";
+			else if (sameRun && live!.idle && live!.woke && steered.length > 0 && steered.every((t) => live!.wakeTexts.has(t)))
+				reuse = "read";
+			else if (
+				sameRun &&
+				live!.idle &&
+				canResume &&
+				known!.claudeSessionId === live!.claudeSessionId &&
+				live!.signature === launchSignature(args)
+			)
+				reuse = "send";
+			if (live && !reuse) {
+				runtime.live = undefined;
+				stopLive(live);
+				live = undefined;
+			}
+			/** Steers this turn answers; claude's echo of them is no reason to split again. */
+			const expected = new Set(live?.detached ? steered : []);
+			if (live && reuse === "send") {
+				if (live.model !== model.id) controlRequest(live, { subtype: "set_model", model: model.id });
+				if (live.mode !== runtime.permissionMode)
+					controlRequest(live, { subtype: "set_permission_mode", mode: runtime.permissionMode });
+				live.model = model.id;
+				live.mode = runtime.permissionMode;
+				live.child.stdin.write(userInput(newBlocks));
+			}
+			if (live) {
+				if (live.idleTimer) clearTimeout(live.idleTimer);
+				live.idleTimer = undefined;
+				live.idle = false;
+				live.woke = false;
+				live.wakeTexts.clear();
+			}
+
 			/**
 			 * Whether claude has taken up this turn's input. A claude that reads on has it already; a new
 			 * one may first report a result of its own, e.g. for a background task the last run left
 			 * stopped, before it echoes the prompt (see "Steering").
 			 */
-			let inputTaken = live !== undefined;
+			let inputTaken = reuse === "read";
 			if (!live) {
 				let payload: any = {
 					command: instanceState.instance.command,
@@ -472,11 +656,21 @@ export function streamClaudeCode(
 				const rl = createInterface({ input: spawned.stdout });
 				// Stop reading shortly after claude exits, even if an inherited pipe stays open.
 				void exited.finally(() => setTimeout(() => rl.close(), 2000).unref()).catch(() => {});
+				const buffer: string[] = [];
 				const started: LiveRun = {
 					provider: model.provider,
 					key,
 					child: spawned,
-					lines: rl[Symbol.asyncIterator](),
+					lines: lineReader(() => started, rl, buffer),
+					buffer,
+					signature: launchSignature(payload.args),
+					model: model.id,
+					mode: runtime.permissionMode,
+					tasks: new Map(),
+					idle: false,
+					woke: false,
+					notices: [],
+					wakeTexts: new Set(),
 					exited,
 					stderr: "",
 					waiting: [],
@@ -484,6 +678,19 @@ export function streamClaudeCode(
 					detached: false,
 					closing: false,
 				};
+				// A kept claude that ends by itself (not stopped by pi) while its background tasks run.
+				void exited
+					.then(() => {
+						if (started.closing) return;
+						if (started.idleTimer) clearTimeout(started.idleTimer);
+						const stopped = [...started.tasks.values()];
+						started.tasks.clear();
+						if (runtime.live === started && started.idle) {
+							runtime.live = undefined;
+							if (stopped.length > 0) runtime.onTasksStopped?.(stopped);
+						}
+					})
+					.catch(() => {});
 				spawned.stderr.on("data", (d) => {
 					started.stderr += d.toString();
 				});
@@ -498,9 +705,16 @@ export function streamClaudeCode(
 			owned = run;
 			const child = run.child;
 
+			// Escape stops claude's current step the way Claude Code does, so tools in flight end as
+			// cancelled and background tasks run on. Only a claude that does not answer is signalled.
+			let abortTimer: ReturnType<typeof setTimeout> | undefined;
 			const onAbort = () => {
-				stopClaude(child, "SIGINT");
-				setTimeout(() => stopClaude(child, "SIGKILL"), 3000).unref();
+				interrupt(run);
+				abortTimer = setTimeout(() => {
+					stopClaude(child, "SIGINT");
+					setTimeout(() => stopClaude(child, "SIGKILL"), 3000).unref();
+				}, ABORT_GRACE_MS);
+				abortTimer.unref?.();
 			};
 			if (options?.signal?.aborted) onAbort();
 			options?.signal?.addEventListener("abort", onAbort, { once: true });
@@ -578,6 +792,8 @@ export function streamClaudeCode(
 					const text = userText(msg.message ?? { content: "" });
 					const at = run.waiting.indexOf(text);
 					if (at < 0) {
+						// What a control request prints (e.g. a model change) is not the prompt.
+						if (text.startsWith("<local-command-stdout>")) continue;
 						// Not a steer: the echo of this turn's prompt.
 						inputTaken = true;
 						continue;
@@ -728,7 +944,7 @@ export function streamClaudeCode(
 					}
 				} else if (msg.type === "result") {
 					// A result before claude took up the prompt is not this turn's answer.
-					if (!inputTaken) continue;
+					if (!inputTaken && !options?.signal?.aborted) continue;
 					result = msg;
 					// A steer claude has not taken up yet starts its next turn; the answer ends here.
 					if (run.waiting.length > 0 && !options?.signal?.aborted) split = true;
@@ -737,12 +953,16 @@ export function streamClaudeCode(
 			}
 
 			options?.signal?.removeEventListener("abort", onAbort);
+			if (abortTimer) clearTimeout(abortTimer);
 			runtime.onActivity?.(model.provider, undefined);
 			run.claudeSessionId = claudeSessionId;
 			run.contextTokens = contextTokens;
 			let code: number | null = null;
 			if (split) run.detached = true;
-			else {
+			else if (result && run.tasks.size > 0 && run.child.exitCode === null && run.child.signalCode === null) {
+				// Background tasks run on in this claude; it stays for them and for the next prompt.
+				keepIdle(run);
+			} else {
 				// The turn is complete; whatever claude prints after this is not needed.
 				if (runtime.live === run) runtime.live = undefined;
 				run.closing = true;
@@ -830,7 +1050,7 @@ export function streamClaudeCode(
 			stream.push({ type: "done", reason: output.stopReason as "stop" | "length", message: output });
 			stream.end();
 		} catch (error) {
-			if (owned && !owned.detached && runtime.live === owned) {
+			if (owned && !owned.detached && !owned.idle && runtime.live === owned) {
 				runtime.live = undefined;
 				stopLive(owned);
 			}

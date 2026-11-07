@@ -8,7 +8,9 @@
  * thinking and tool activity live. One pi session maps to one Claude Code
  * session per instance, continued with --resume on later prompts. A steer
  * (Enter while it works) goes into the running CLI at once and reaches Claude
- * after its current step, not only when its whole answer is done.
+ * after its current step, not only when its whole answer is done. While
+ * Claude's background tasks run, its CLI stays after the answer, takes the
+ * next prompt and starts a pi turn by itself when a task ends.
  *
  * The model list and plan usage come from each CLI itself (the `initialize`
  * and `get_usage` control requests). They are cached, loaded at startup and
@@ -48,6 +50,7 @@
 
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
 	ACTIVITY_CHANNEL,
 	type ActivityEvent,
@@ -95,10 +98,22 @@ import { loginInstance } from "./login.ts";
 import { oneShot } from "./oneshot.ts";
 import { type InstanceState, isClaudeProvider, MODE_CYCLE, PERMISSION_MODES, runtime } from "./state.ts";
 import { createPublisher, SOURCE } from "./status.ts";
-import { dropLiveRun, forgetSessions, loadSessions, scratchDir, sessionKey, steerRun, streamClaudeCode } from "./stream.ts";
+import {
+	dropLiveRun,
+	forgetSessions,
+	loadSessions,
+	scratchDir,
+	sessionKey,
+	steerRun,
+	stopLiveRun,
+	streamClaudeCode,
+} from "./stream.ts";
 import { SubagentWatcher, subagentsDir } from "./subagents.ts";
 import { bar, usageWindows } from "./usage.ts";
 import { ctxUi, oauthUi, type Probe, runAddWizard, type WizardUi } from "./wizard.ts";
+
+/** Chat messages about Claude's background tasks: one ended and Claude goes on, or they were stopped. */
+const BACKGROUND_MESSAGE = "claude-code-background";
 
 /** Provider that only exists to put "add another account" into /login. */
 const SETUP_PROVIDER_ID = "claude-cli-setup";
@@ -148,6 +163,20 @@ export default function (pi: ExtensionAPI) {
 	runtime.onTool = (event) => pi.events.emit(TOOL_CHANNEL, event);
 	runtime.onActivity = (provider, activity) => pi.events.emit(ACTIVITY_CHANNEL, { provider, activity } satisfies ActivityEvent);
 	runtime.piTools = () => pi.getAllTools();
+	// A background task of Claude ended and Claude goes on by itself: a turn shows what it does.
+	runtime.onWake = (_provider, text) =>
+		pi.sendMessage({ customType: BACKGROUND_MESSAGE, content: text, display: true }, { triggerTurn: true, deliverAs: "followUp" });
+	// Claude Code had to end while background tasks ran: the chat says so, and Claude learns it with the next prompt.
+	runtime.onTasksStopped = (descriptions) => {
+		const list = descriptions.map((d) => `"${d}"`).join(", ");
+		const content = `Claude Code was ended; ${descriptions.length === 1 ? "its background task was" : "its background tasks were"} stopped: ${list}.`;
+		pi.sendMessage({ customType: BACKGROUND_MESSAGE, content, display: true, details: { stopped: descriptions } }, { triggerTurn: false });
+	};
+	pi.registerMessageRenderer(BACKGROUND_MESSAGE, (message, _options, theme) => {
+		const stopped = (message.details as { stopped?: string[] } | undefined)?.stopped;
+		const text = String(message.content);
+		return new Text(stopped ? theme.fg("warning", `⚠ ${text}`) : theme.fg("dim", `⏺ ${text}`), 0, 0);
+	});
 	runtime.bridge = (provider, command) => {
 		let server: BridgeServerInfo | undefined;
 		pi.events.emit(BRIDGE_CHANNEL, {
@@ -395,7 +424,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", async (_event, ctx) => publisher.status(ctx));
 
 	pi.on("session_shutdown", async () => {
-		dropLiveRun();
+		// The background tasks of the session's Claude end with pi's session.
+		stopLiveRun({ report: false });
 		if (ticker) clearInterval(ticker);
 		ticker = undefined;
 		if (watching) clearInterval(watching);
@@ -676,6 +706,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_arg, ctx) => {
 			const id = ctx.sessionManager.getSessionId();
 			forgetSessions([...runtime.instances.keys()].map((providerId) => sessionKey(providerId, id)));
+			stopLiveRun();
 			status.render(ctx);
 			ctx.ui.notify("The next prompt starts a new Claude Code session.", "info");
 		},

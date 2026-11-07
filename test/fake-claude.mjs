@@ -6,9 +6,11 @@
  * Writes its arguments and stdin to FAKE_CLAUDE_RECORD (JSON) when that is set.
  *
  * Fixture lines for steering:
- *   {"fake": "read"}    waits for the next line on stdin (a steer)
+ *   {"fake": "read"}    waits for the next line on stdin (a steer, or the next prompt); skips control requests
  *   {"fake": "replay"}  echoes the oldest line read that way, as claude does with --replay-user-messages
  *   {"fake": "prompt"}  echoes the prompt here (--replay-user-messages); without it, the prompt is echoed first
+ *   {"fake": "control", "subtype": "interrupt"}  waits for a control request of that subtype
+ *   {"fake": "sleep", "ms": 100}                 waits that long (e.g. for a background task to end)
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -23,6 +25,18 @@ const next = async () => {
 	return line.value;
 };
 
+/** The next line on stdin that is not a control request (or one of `subtype`, when given). */
+const nextInput = async (subtype) => {
+	while (true) {
+		const line = await next();
+		if (line === undefined) return undefined;
+		const msg = JSON.parse(line);
+		if (msg.type !== "control_request") {
+			if (!subtype) return line;
+		} else if (msg.request?.subtype === subtype) return line;
+	}
+};
+
 const prompt = await next();
 const fixture = readFileSync(process.env.FAKE_CLAUDE_FIXTURE, "utf8").split("\n").filter(Boolean);
 const echoPrompt = () => {
@@ -33,7 +47,9 @@ const steers = [];
 for (const line of fixture) {
 	const entry = JSON.parse(line);
 	if (entry.fake === "prompt") echoPrompt();
-	else if (entry.fake === "read") steers.push(await next());
+	else if (entry.fake === "read") steers.push(await nextInput());
+	else if (entry.fake === "control") await nextInput(entry.subtype);
+	else if (entry.fake === "sleep") await new Promise((resolve) => setTimeout(resolve, entry.ms));
 	else if (entry.fake === "replay") process.stdout.write(`${JSON.stringify({ ...JSON.parse(steers.shift()), isReplay: true })}\n`);
 	else process.stdout.write(`${line}\n`);
 }

@@ -43,7 +43,8 @@ export interface Denials {
 
 /**
  * The claude process of the current run, kept between pi turns while a steer
- * splits its answer (see stream.ts, "Steering").
+ * splits its answer (see stream.ts, "Steering") or while background tasks of
+ * claude still run (see stream.ts, "Background tasks").
  */
 export interface LiveRun {
 	provider: string;
@@ -51,6 +52,25 @@ export interface LiveRun {
 	child: ChildProcessWithoutNullStreams;
 	/** claude's stdout, line by line; read on by the turn that continues the run. */
 	lines: AsyncIterator<string>;
+	/** Lines claude printed that no turn has read yet. */
+	buffer: string[];
+	/** The CLI arguments that cannot change in a running claude (see stream.ts, launchSignature). */
+	signature: string;
+	/** Model and permission mode claude runs with now; both change through control requests. */
+	model: string;
+	mode: string;
+	/** claude's background tasks (shell commands, subagents, monitors) by id: their descriptions. */
+	tasks: Map<string, string>;
+	/** The turn is over but background tasks run on; no pi turn reads claude now. */
+	idle: boolean;
+	/** An idle claude started a turn on its own (a background task ended); pi was asked for a turn to show it. */
+	woke: boolean;
+	/** What claude reported about background tasks while idle, for the message that starts pi's turn. */
+	notices: string[];
+	/** Texts of the messages that asked pi for a turn (see `woke`); such a turn sends claude nothing. */
+	wakeTexts: Set<string>;
+	/** Ends an idle claude whose background tasks are all done but that started no turn about them. */
+	idleTimer?: ReturnType<typeof setTimeout>;
 	exited: Promise<number | null>;
 	stderr: string;
 	/** Steers written to claude that it has not taken up yet, in order. */
@@ -95,6 +115,10 @@ export const runtime = {
 	piTools: undefined as (() => readonly PiToolInfo[]) | undefined,
 	/** The claude process of the current run (see LiveRun). */
 	live: undefined as LiveRun | undefined,
+	/** Set by the extension: an idle claude started a turn on its own; pi starts one to show it. */
+	onWake: undefined as ((provider: string, text: string) => void) | undefined,
+	/** Set by the extension: claude ended while these background tasks ran (descriptions). */
+	onTasksStopped: undefined as ((descriptions: string[]) => void) | undefined,
 };
 
 export function isClaudeProvider(provider: string | undefined): boolean {

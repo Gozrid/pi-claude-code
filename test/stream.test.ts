@@ -488,3 +488,134 @@ test("a steer pi does not deliver stops the claude kept for it; the next prompt 
 	]);
 	assert.deepEqual(texts(message), ["Fresh."]);
 });
+
+// Background tasks: claude stays after its result while they run, takes the next prompt and wakes pi when one ends.
+const tasksChanged = (tasks: { task_id: string; description: string }[]) => ({
+	type: "system",
+	subtype: "background_tasks_changed",
+	tasks: tasks.map((t) => ({ ...t, task_type: "local_bash" })),
+	session_id: "claude-bg",
+});
+const ciTask = { task_id: "b1", description: "Watch CI" };
+
+/** Stops the claude kept for background tasks and returns what it recorded. */
+async function stopKept(report = false) {
+	const { stopLiveRun } = await import("../extensions/claude-code/stream.ts");
+	const kept = runtime.live;
+	assert.ok(kept, "a claude is kept");
+	stopLiveRun({ report });
+	await kept.exited;
+	return JSON.parse(readFileSync(record, "utf8"));
+}
+
+test("while background tasks run, claude stays after its result and the next prompt goes into the same claude", async () => {
+	fixture([
+		{ type: "system", subtype: "init", session_id: "claude-bg" },
+		tasksChanged([ciTask]),
+		...say(0, "Started."),
+		result({ session_id: "claude-bg" }),
+		{ fake: "read" },
+		{ fake: "replay" },
+		...say(0, "Second."),
+		result({ session_id: "claude-bg" }),
+	]);
+	const first = await turn([prompt], "bg-keep");
+	assert.deepEqual(texts(first), ["Started."]);
+	assert.equal(runtime.live?.idle, true, "claude stays for its background task");
+	assert.equal(runtime.live?.child.exitCode, null);
+
+	const next = { role: "user", content: "and now?", timestamp: 0 };
+	const model = { id: "sonnet", provider: PROVIDER, api: `claude-code-cli:${PROVIDER}`, reasoning: true } as any;
+	const stream = streamClaudeCode(model, { messages: [prompt, first, next] } as any, { sessionId: "bg-keep" } as any);
+	for await (const _ of stream);
+	const second = await stream.result();
+	assert.deepEqual(texts(second), ["Second."]);
+	assert.equal(runtime.live?.idle, true, "the task still runs");
+
+	const recorded = await stopKept();
+	const inputs = recorded.stdin.trim().split("\n").map((l: string) => JSON.parse(l));
+	assert.equal(inputs.filter((i: any) => i.type === "user").length, 2, "one claude for both prompts");
+	assert.deepEqual(
+		inputs.filter((i: any) => i.type === "control_request").map((i: any) => i.request),
+		[{ subtype: "set_model", model: "sonnet" }, { subtype: "interrupt" }],
+		"the model changes in the running claude; stopping it interrupts its step first",
+	);
+	assert.equal(loadSessions()[sessionKey(PROVIDER, "bg-keep")].messageCount, 4);
+});
+
+test("when a background task ends, claude goes on by itself and pi gets a turn that reads on", async () => {
+	const summary = 'Background command "Watch CI" completed (exit code 0)';
+	fixture([
+		{ type: "system", subtype: "init", session_id: "claude-bg" },
+		tasksChanged([ciTask]),
+		...say(0, "Started."),
+		result({ session_id: "claude-bg" }),
+		{ fake: "sleep", ms: 50 },
+		{ type: "system", subtype: "task_notification", task_id: "b1", status: "completed", summary, session_id: "claude-bg" },
+		tasksChanged([]),
+		{ type: "system", subtype: "init", session_id: "claude-bg" },
+		...say(0, "CI is green."),
+		result({ session_id: "claude-bg" }),
+	]);
+	const woke = new Promise<string>((resolve) => {
+		runtime.onWake = (_provider, text) => resolve(text);
+	});
+	try {
+		const first = await turn([prompt], "bg-wake");
+		const text = await woke;
+		assert.equal(text, summary, "pi's turn starts with what claude reported");
+		const second = await turn([prompt, first, { role: "user", content: [{ type: "text", text }], timestamp: 0 }], "bg-wake");
+		assert.deepEqual(texts(second), ["CI is green."]);
+		assert.equal(runtime.live, undefined, "no task left: claude ends after that turn");
+		const recorded = JSON.parse(readFileSync(record, "utf8"));
+		assert.equal(recorded.stdin.trim().split("\n").length, 1, "the woken turn sends claude nothing");
+	} finally {
+		runtime.onWake = undefined;
+	}
+});
+
+test("a claude that has to end while background tasks run says so in the chat", async () => {
+	fixture([
+		{ type: "system", subtype: "init", session_id: "claude-bg" },
+		tasksChanged([ciTask]),
+		...say(0, "Started."),
+		result({ session_id: "claude-bg" }),
+	]);
+	let stopped: string[] | undefined;
+	runtime.onTasksStopped = (descriptions) => {
+		stopped = descriptions;
+	};
+	try {
+		await turn([prompt], "bg-stop");
+		await stopKept(true);
+		assert.deepEqual(stopped, ["Watch CI"]);
+	} finally {
+		runtime.onTasksStopped = undefined;
+	}
+});
+
+test("Escape interrupts claude's current step instead of killing it; its background tasks run on", async () => {
+	fixture([
+		{ type: "system", subtype: "init", session_id: "claude-bg" },
+		tasksChanged([ciTask]),
+		...toolCall(0, "t1", "Bash", { command: "npm test" }),
+		{ fake: "control", subtype: "interrupt" },
+		result({ session_id: "claude-bg", subtype: "error_during_execution", is_error: true, result: "" }),
+	]);
+	const abort = new AbortController();
+	runtime.onTool = (event) => {
+		if (event.type === "start") abort.abort();
+	};
+	try {
+		const model = { id: "opus", provider: PROVIDER, api: `claude-code-cli:${PROVIDER}`, reasoning: true } as any;
+		const stream = streamClaudeCode(model, { messages: [prompt] } as any, { sessionId: "bg-abort", signal: abort.signal } as any);
+		for await (const _ of stream);
+		const message = await stream.result();
+		assert.equal(message.stopReason, "aborted");
+		assert.equal(runtime.live?.idle, true, "claude stays for its background task");
+		assert.equal(runtime.live?.child.signalCode, null, "not signalled");
+	} finally {
+		runtime.onTool = undefined;
+	}
+	await stopKept();
+});
