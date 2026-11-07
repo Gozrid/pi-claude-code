@@ -25,6 +25,9 @@
  * Watches (watch.ts) are commands pi runs while an agent waits on something
  * outside; they stand above the editor while they run, `/watches` stops them,
  * and when one ends its result goes to the agent in a message that starts a turn.
+ *
+ * Steps (steps.ts) are a stepper an agent shows above the editor for a job of
+ * several steps and moves on as it works; `/steps` hides it.
  */
 
 import { spawn } from "node:child_process";
@@ -41,6 +44,7 @@ import { agyHook, bridgeTools, type ClientData, type Host, SERVER_INSTRUCTIONS, 
 import { readWishes, setWishStatus, wishLineIds, wishLines } from "./wishes.ts";
 import { WishBrowser, workPrompt } from "./wish-popup.ts";
 import { endHeadline, endMessage, formatElapsed, watchLines, Watches, type WatchEnd } from "./watch.ts";
+import { SPINNER_MS, Stepper, stepLines } from "./steps.ts";
 import { darkenBackdrop } from "../shared/backdrop.ts";
 import { OPENING_MS, UNFOLD_MS, unfoldedSize } from "../shared/opening.ts";
 import { rowClick, WISH_LIST_CHANNEL, type WishListOffer } from "../shared/wish-list.ts";
@@ -52,6 +56,7 @@ const DIRECT = new Set(["ask", "change_request"]);
 const WISH_WIDGET = "pi-bridge-wishes";
 const WATCH_WIDGET = "pi-bridge-watches";
 const WATCH_MESSAGE = "pi-watch";
+const STEPS_WIDGET = "pi-bridge-steps";
 const POPUP_LAYOUT = { width: "90%", minWidth: 40, maxHeight: "90%", anchor: "center" } satisfies OverlayOptions;
 /** Frames of the opening animation. */
 const FRAME_MS = 33;
@@ -271,6 +276,70 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// Steps: a stepper above the editor; the running step's spinner and time tick on.
+	let stepsShown = false;
+	let refreshSteps: (() => void) | undefined;
+	const showSteps = () => {
+		const ctx = current;
+		const list = host.steps?.list;
+		if (ctx?.mode !== "tui") return;
+		if (Boolean(list) === stepsShown) {
+			refreshSteps?.();
+			return;
+		}
+		stepsShown = Boolean(list);
+		try {
+			if (!list) {
+				refreshSteps = undefined;
+				ctx.ui.setWidget(STEPS_WIDGET, undefined);
+				return;
+			}
+			ctx.ui.setWidget(STEPS_WIDGET, (tui, theme) => {
+				let frame = 0;
+				let ticker: ReturnType<typeof setInterval> | undefined;
+				const tick = () => {
+					const running = host.steps?.list?.steps.some((s) => s.status === "running") ?? false;
+					if (running && !ticker) {
+						ticker = setInterval(() => {
+							frame++;
+							tui.requestRender();
+						}, SPINNER_MS);
+						ticker.unref?.();
+					} else if (!running && ticker) {
+						clearInterval(ticker);
+						ticker = undefined;
+					}
+				};
+				refreshSteps = () => {
+					tick();
+					tui.requestRender();
+				};
+				tick();
+				return {
+					render: (width: number) => {
+						const shown = host.steps?.list;
+						return shown ? stepLines(theme, shown, width, Date.now(), frame) : [];
+					},
+					invalidate() {},
+					dispose: () => {
+						if (ticker) clearInterval(ticker);
+					},
+				};
+			});
+		} catch {
+			// Stale context after a reload or session switch.
+			stepsShown = false;
+			refreshSteps = undefined;
+		}
+	};
+	host.steps = new Stepper({ onChange: showSteps });
+	pi.registerCommand("steps", {
+		description: "Hide the steps an agent shows above the editor",
+		handler: async (_arg, ctx) => {
+			if (!host.steps?.clear()) ctx.ui.notify("No steps shown", "info");
+		},
+	});
+
 	const server = new BridgeServer(() => tools, { name: SERVER_NAME, version: "1.0.0" }, SERVER_INSTRUCTIONS);
 	server.hook = (payload, client) => agyHook(host, payload, client);
 	const proxy = new McpProxy(
@@ -359,6 +428,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		current = ctx;
+		stepsShown = false;
+		refreshSteps = undefined;
+		host.steps?.clear();
 		if (ctx.mode === "tui" && chatIsEmpty(ctx)) showWishes(ctx);
 		else hideWishes(ctx);
 		try {
@@ -375,6 +447,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("model_select", track);
 	pi.on("session_shutdown", async (_event, ctx) => {
 		hideWishes(ctx);
+		host.steps?.clear();
 		current = undefined;
 		host.watches?.stopAll();
 		proxy.clear();

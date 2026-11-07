@@ -16,6 +16,7 @@ import { addAllowRule, agyPermissionQuestion, choiceFrom, type PermissionDecisio
 import type { BridgeClient, BridgeTool, ToolResult } from "./server.ts";
 import { addWish, cut, readWishes, SHORT_MAX, setWishStatus, WISH_STATUSES, type Wish, type WishStatus } from "./wishes.ts";
 import { formatElapsed, MAX_TIMEOUT_MIN, DEFAULT_TIMEOUT_MIN, timeoutMsOf, type Watches } from "./watch.ts";
+import { MAX_STEPS, STEP_STATUSES, type Stepper, summary } from "./steps.ts";
 
 export interface Host {
 	pi: ExtensionAPI;
@@ -29,6 +30,8 @@ export interface Host {
 	wishesChanged?(): void;
 	/** Commands pi runs while an agent waits on something outside (watch.ts). */
 	watches?: Watches;
+	/** The stepper an agent shows above the editor (steps.ts). */
+	steps?: Stepper;
 }
 
 export const wishesFileOf = (host: Host) => host.wishesFile ?? join(getAgentDir(), "wishes.md");
@@ -614,6 +617,72 @@ export function bridgeTools(host: Host): BridgeTool[] {
 			},
 		},
 		{
+			name: "steps_set",
+			description: `Show the user a stepper above pi's editor for a job of several steps you are about to do, e.g. putting an app on a phone: 1. Build the APK, 2. Check the device, 3. Install the APK, 4. Start the app. Replaces the steps shown before. Then move each step on with \`steps_update\` as you work (running when you start it, done, failed or skipped when it ended), so the user sees live where you are ("Step 2 of 4"). A finished list goes away by itself after a few seconds; \`steps_clear\` removes it earlier. Use it for jobs of about 3 or more steps that take a while, not for single quick actions.`,
+			inputSchema: obj(
+				{
+					title: { type: "string", description: "What the whole job is, in a few words in the user's language, e.g. 'Install the app'." },
+					steps: {
+						type: "array",
+						minItems: 1,
+						maxItems: MAX_STEPS,
+						description: "The steps in order.",
+						items: obj(
+							{
+								title: { type: "string", description: "The step in a few words in the user's language." },
+								detail: { type: "string", description: "Optional short detail, e.g. the command it runs." },
+								status: { type: "string", enum: [...STEP_STATUSES], description: "Default pending; e.g. running for the step you start right away." },
+							},
+							["title"],
+						),
+					},
+				},
+				["steps"],
+			),
+			annotations: WRITE,
+			async call(args) {
+				if (!host.steps) return text("Steps are not available.", true);
+				try {
+					return text(summary(host.steps.set(args.title, args.steps)));
+				} catch (error) {
+					return text(error instanceof Error ? error.message : String(error), true);
+				}
+			},
+		},
+		{
+			name: "steps_update",
+			description:
+				"Set the status of one step of the stepper shown with `steps_set`: running when you start it, done when it worked, failed (with the reason as note) or skipped. Optionally a short note shown with it, e.g. the device found or the error.",
+			inputSchema: obj(
+				{
+					step: { type: "number", description: "The step's number, 1 for the first." },
+					status: { type: "string", enum: [...STEP_STATUSES] },
+					note: { type: "string", description: "Short note shown with the step; empty to remove it." },
+					detail: { type: "string", description: "Replaces the step's detail; empty to remove it." },
+				},
+				["step"],
+			),
+			annotations: WRITE,
+			async call(args) {
+				if (!host.steps) return text("Steps are not available.", true);
+				try {
+					host.steps.update(args.step, args.status, { note: args.note, detail: args.detail });
+					return text(summary(host.steps.list!));
+				} catch (error) {
+					return text(error instanceof Error ? error.message : String(error), true);
+				}
+			},
+		},
+		{
+			name: "steps_clear",
+			description: "Remove the stepper shown with `steps_set` (a finished one also goes away by itself).",
+			inputSchema: obj({}),
+			annotations: WRITE,
+			async call() {
+				return text(host.steps?.clear() ? "Steps removed." : "No steps were shown.");
+			},
+		},
+		{
 			name: "notify",
 			description: "Show a short notification in pi (e.g. when a long task is done).",
 			inputSchema: obj({ message: { type: "string" }, type: { type: "string", enum: ["info", "warning", "error"] } }, ["message"]),
@@ -632,4 +701,5 @@ export const SERVER_INSTRUCTIONS = `pi is the terminal chat app the user talks t
 - When the user wants pi itself changed (its look, theme, colours, keys, commands, behaviour, extensions), call \`change_request\` instead of editing files.
 - \`wishes\` reads pi's wish list; when you start working on one of its wishes, set it \`in progress\` with \`wish_update\`, and \`done\` when it is finished.
 - To wait for something outside that takes a while (a CI run, a deployment, a PR's checks), start a \`watch\` and end your turn: pi runs the command and starts a new turn with its result. Prefer it to background shell commands and sleep loops, which can be ended between turns.
+- For a job of several steps that takes a while (e.g. build, install and start an app), show them as a stepper with \`steps_set\` and move each on with \`steps_update\` as you go, so the user sees where you are.
 - \`status\`, \`settings\`, \`themes\`, \`keybindings\`, \`commands\`, \`tools\`, \`mcp_servers\` and \`docs\` read pi's state; the set_* tools change it after asking the user.`;

@@ -8,7 +8,7 @@ Extensions for [pi](https://pi.dev) in one package:
 - **usage-graph** – `/usage` charts the plan usage limits of every connected account (all Claude CLI and Antigravity instances) and the tokens of every model over time
 - **task-list** – the task list a CLI agent keeps, above the editor while it works on it
 - **subagents** – the subagents a CLI agent runs, above the editor while they work; a click or `/subagents` opens a popup with every subagent of the session in a box and the selected one's output live
-- **pi-bridge** – pi's own MCP server for the CLI agents: Claude and agy ask pi before what their mode does not allow and wait for your answer, the agents ask you questions in a dialog with options and a field for your own answer, hand wishes to change pi over to you and keep a wish list (its open wishes stand at the bottom right of the empty chat; a click on them or `/wishes` opens a popup with the whole list and each wish in full), read pi's state and settings and change them after asking, and wait for things outside that take a while (a CI run, a deployment): pi runs the command itself, shows it above the editor and starts a new turn with the result when it ends (`/watches` stops one); pi's MCP servers reach the agents through pi's own connections instead of being started twice
+- **pi-bridge** – pi's own MCP server for the CLI agents: Claude and agy ask pi before what their mode does not allow and wait for your answer, the agents ask you questions in a dialog with options and a field for your own answer, hand wishes to change pi over to you and keep a wish list (its open wishes stand at the bottom right of the empty chat; a click on them or `/wishes` opens a popup with the whole list and each wish in full), read pi's state and settings and change them after asking, and wait for things outside that take a while (a CI run, a deployment): pi runs the command itself, shows it above the editor and starts a new turn with the result when it ends (`/watches` stops one), and show a stepper above the editor for a job of several steps (build → install → start …) that they move on live as they work; pi's MCP servers reach the agents through pi's own connections instead of being started twice
 - **permission-retry** – when a CLI agent was not allowed to do something, asks how to allow it and retries
 - **provider-logo** – shows the logo of the selected model's provider in the middle of the empty chat
 - **chat-crab** – a tiny Clawd (Gravi for Antigravity) above the editor that acts out what the agent is doing
@@ -337,9 +337,19 @@ The status is `open`, `in progress` or `done`; done wishes stay in the file with
 
 **Waiting for things outside** (`watch`, `watches`, `watch_stop`): when the agent has to wait for something that takes a while – a GitHub Actions run, a deployment, a PR's checks – it hands pi a shell command that blocks until it is done, e.g. `gh run watch <id> --exit-status`, with a description and a time limit (default 30 minutes, at most 3 hours), and ends its turn. pi runs the command itself (`/bin/sh -c`, in the agent's working directory, in its own process group), so it does not depend on the agent's turn or its CLI process, whose background commands can end between turns. While it runs it stands above the editor (`⏳ Waiting for CI of PR #42 · 3m 12s · #1 · /watches to stop`); several can run at once. When the command ends, or is stopped at its time limit, pi sends the agent a message with the exit code and the last 40 lines of output, which starts a new turn (queued as a follow-up while the agent is busy). In the chat it shows as one line (`✓`, `✗` with the exit code, `⏱` time limit, `■` stopped), the output with Ctrl+O. `/watches` lists the running ones and stops the one you pick; a watch you stop is reported with your next message instead of starting a turn. Watches belong to the pi session: quitting pi, switching the session or `/reload` ends them without a report.
 
+**Steps** (`steps_set`, `steps_update`, `steps_clear`): for a job of several steps that takes a while – e.g. putting an app on the phone: build the APK, check the device, install it, start it – the agent shows the steps as a stepper above the editor and moves each one on as it works (pending, running, done, failed, skipped, each with an optional note):
+
+```
+Install the app · Step 2 of 4
+✓ Build APK ── ⠹ Check device ── ○ Install APK ── ○ Start app
+  adb devices · 4s
+```
+
+Done steps get a green `✓`, the running one a spinner and its time, failed ones a red `✗` with their note, skipped ones `↷`, pending ones stay grey. When the row does not fit the width, the steps stand below each other. A finished list (`4 of 4 done`, or `Step 3 of 4 failed`) goes away by itself after 10 seconds; the agent can remove it earlier with `steps_clear`, you with `/steps`. A new `steps_set` replaces the list; it belongs to the pi session.
+
 **Read**: `wishes`, `status` (version, model, thinking level, session, context, theme), `settings`, `themes`, `keybindings`, `commands`, `tools`, `mcp_servers` (headers and env values hidden), `docs` (list, search or read pi's documentation of the installed version).
 
-**Change**, each after a confirmation: `set_theme`, `set_setting` (through pi's own settings manager), `set_keybinding`, `set_model`, `set_thinking_level`, `set_mode` (the CLI's mode, as Shift+Tab), `mcp_server_set` (add, replace or remove in `~/.pi/agent/mcp.json`). Without asking: `wish_update`, `rename_session`, `notify`, `watch`, `watch_stop`.
+**Change**, each after a confirmation: `set_theme`, `set_setting` (through pi's own settings manager), `set_keybinding`, `set_model`, `set_thinking_level`, `set_mode` (the CLI's mode, as Shift+Tab), `mcp_server_set` (add, replace or remove in `~/.pi/agent/mcp.json`). Without asking: `wish_update`, `rename_session`, `notify`, `watch`, `watch_stop`, `steps_set`, `steps_update`, `steps_clear`.
 
 ## agent-status-line
 
@@ -802,8 +812,9 @@ Layout:
 | `extensions/pi-bridge/index.ts` | pi's MCP server for the CLIs: start, tokens over `pi-bridge:server`, pi tools for pi's own models |
 | `extensions/pi-bridge/server.ts` | MCP over HTTP on 127.0.0.1 (JSON-RPC: initialize, tools/list, tools/call); `/mcp/<server>` for proxied servers |
 | `extensions/pi-bridge/mcp-proxy.ts` | pi's MCP servers for the CLIs through pi's own connections, without the tools pi hides |
-| `extensions/pi-bridge/tools.ts` | the tools: ask, permission, change_request, wishes, watches, reading and changing pi |
+| `extensions/pi-bridge/tools.ts` | the tools: ask, permission, change_request, wishes, watches, steps, reading and changing pi |
 | `extensions/pi-bridge/watch.ts` | watches: commands pi runs while an agent waits, time limit, stop, the message with the result |
+| `extensions/pi-bridge/steps.ts` | steps: the stepper an agent shows above the editor, statuses, going away when finished, its lines |
 | `extensions/pi-bridge/wishes.ts` | wish list: Markdown file, status, rows for the empty chat and the wish each opens |
 | `extensions/pi-bridge/wish-popup.ts` | wish popup (`/wishes`): list and preview, filter, search, status, work on it |
 | `extensions/pi-bridge/ask.ts` | question dialog: options, own answer, extra input field, several questions |

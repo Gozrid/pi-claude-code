@@ -366,7 +366,7 @@ test("the extension answers a provider's request with its server and gives pi's 
 	const renderers: string[] = [];
 	const sent: { message: any; options: any }[] = [];
 	bridge(pi);
-	assert.deepEqual(commands, ["watches", "wishes"]);
+	assert.deepEqual(commands, ["watches", "steps", "wishes"]);
 	assert.deepEqual(renderers, ["pi-watch"]);
 	assert.deepEqual(
 		registered.filter((t) => t.exposure === "direct").map((t) => t.name),
