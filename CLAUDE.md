@@ -7,7 +7,7 @@ pi package with several extensions for [pi](https://pi.dev), listed in `package.
 - Build every feature into the extension it belongs to. Each extension has one purpose (see the list at the top of `README.md`); match the feature to that purpose, not to where the code is easiest to add.
 - If no extension fits, **ask the user** whether it should become a new extension. Don't create one, and don't squeeze the feature into an unrelated one, without that answer.
 - Each extension can be switched off on its own (`pi config`), so extensions talk only through event channels. From another extension's folder, import only channel names and their types (e.g. `shared/agent-bus.ts`), never its logic. Code shared by several extensions goes into `extensions/shared/`.
-- A new extension gets its own folder `extensions/<name>/index.ts`, an entry in `package.json` (`pi.extensions` and `description`), a section in `README.md` and rows in its Development layout table.
+- A new extension gets its own folder `extensions/<name>/index.ts`, an entry in `package.json` under `pi.extensions` (name it in `description` only if the one-line summary there would otherwise be wrong), a line in the list at the top of `README.md`, a section in `README.md` and rows in its Development layout table.
 
 ## Commit and push every change
 
