@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { IdeConnection } from "../extensions/ide/connection.ts";
 import { hintsFor, IDE_KINDS, integrationInstalled, parseProcesses, runningIdes } from "../extensions/ide/detect.ts";
 import { type IdeLock, parseLock, pickLock, readLocks } from "../extensions/ide/lockfiles.ts";
@@ -195,5 +195,88 @@ test("a wrong token does not connect", async () => {
 		{ notification() {}, closed() {} },
 	);
 	await assert.rejects(conn.connect(), /Could not connect/);
+	ide.server.close();
+});
+
+test("file references: line, range, column, @#L form and plain paths", async () => {
+	const { parseFileRef } = await import("../extensions/ide/links.ts");
+	assert.deepEqual(parseFileRef("src/foo.ts:12"), { path: "src/foo.ts", line: 12, lineEnd: undefined });
+	assert.deepEqual(parseFileRef("src/foo.ts:12-30"), { path: "src/foo.ts", line: 12, lineEnd: 30 });
+	assert.deepEqual(parseFileRef("src/foo.ts:12:5"), { path: "src/foo.ts", line: 12, lineEnd: undefined });
+	assert.deepEqual(parseFileRef("@src/foo.ts#L12-30"), { path: "src/foo.ts", line: 12, lineEnd: 30 });
+	assert.deepEqual(parseFileRef("src/foo.ts"), { path: "src/foo.ts", line: undefined, lineEnd: undefined });
+	assert.equal(parseFileRef("two words"), undefined);
+});
+
+test("references in Markdown become links; fences, links and unknown files stay", async () => {
+	const { linkFileReferences } = await import("../extensions/ide/links.ts");
+	const known = new Set(["src/foo.ts", "a.kt"]);
+	const link = (ref: { path: string; line?: number }) => (known.has(ref.path) ? `x://${ref.path}/${ref.line ?? ""}` : undefined);
+	const md = [
+		"See `src/foo.ts:12` and src/foo.ts:3-4, also @a.kt#L7.",
+		"Not `missing.ts:1`, not `npm test`, not [src/foo.ts:1](http://x) or https://h/src/foo.ts:5.",
+		"```",
+		"src/foo.ts:9",
+		"```",
+	].join("\n");
+	assert.equal(
+		linkFileReferences(md, link),
+		[
+			"See [`src/foo.ts:12`](x://src/foo.ts/12) and [src/foo.ts:3-4](x://src/foo.ts/3), also [@a.kt#L7](x://a.kt/7).",
+			"Not `missing.ts:1`, not `npm test`, not [src/foo.ts:1](http://x) or https://h/src/foo.ts:5.",
+			"```",
+			"src/foo.ts:9",
+			"```",
+		].join("\n"),
+	);
+});
+
+test("links go to the connected IDE's URL scheme, none for IDEs without one", async () => {
+	const { openUrl } = await import("../extensions/ide/links.ts");
+	assert.equal(openUrl("Visual Studio Code", "/p/a b.ts", 3), "vscode://file/p/a%20b.ts:3");
+	assert.equal(openUrl("IntelliJ IDEA", "/p/a.ts", 3), "idea://open?file=%2Fp%2Fa.ts&line=3");
+	assert.equal(openUrl("WebStorm", "/p/a.ts"), "webstorm://open?file=%2Fp%2Fa.ts");
+	assert.equal(openUrl("Rider", "/p/a.ts", 3), undefined);
+});
+
+test("openFile's anchor is the line's text, grown until it is found there first", async () => {
+	const { anchorFor } = await import("../extensions/ide/links.ts");
+	const content = "a\n}\n\nb\n}\nc";
+	assert.equal(anchorFor(content, 1), "a");
+	assert.equal(anchorFor(content, 4), "b");
+	assert.equal(anchorFor(content, 3), "b");
+	assert.equal(anchorFor(content, 5), "}\nc");
+	assert.equal(anchorFor("x\nx", 2), undefined);
+});
+
+test("git status: changed and new files, deleted ones and rename sources left out", async () => {
+	const { parseStatus } = await import("../extensions/ide/actions.ts");
+	const status = [" M src/a.ts", "?? new.ts", " D gone.ts", "R  to.ts", "from.ts", ""].join("\0");
+	assert.deepEqual(parseStatus(status, "/r"), [
+		{ path: "/r/src/a.ts", rel: "src/a.ts", untracked: false },
+		{ path: "/r/new.ts", rel: "new.ts", untracked: true },
+		{ path: "/r/to.ts", rel: "to.ts", untracked: false },
+	]);
+});
+
+test("/ide open asks the IDE to open the file at the line's text", async () => {
+	const { openInIde } = await import("../extensions/ide/actions.ts");
+	const dir = mkdtempSync(join(tmpdir(), "ide-open-"));
+	writeFileSync(join(dir, "a.ts"), "x\n}\ny\n}\nz");
+	const ide = await fakeIde("t");
+	const conn = new IdeConnection({ port: ide.port, ideName: "Fake", workspaceFolders: [dir], authToken: "t", transport: "ws" }, { notification() {}, closed() {} });
+	await conn.connect();
+	after(() => {
+		conn.close();
+		ide.server.close();
+	});
+	await openInIde(conn, { path: "a.ts", line: 4 }, dir);
+	const call = ide.received.find((m) => m.method === "tools/call");
+	assert.deepEqual(call.params, {
+		name: "openFile",
+		arguments: { filePath: join(dir, "a.ts"), preview: false, makeFrontmost: true, startText: "}\nz", selectToEndOfLine: true },
+	});
+	await assert.rejects(openInIde(conn, { path: "nope.ts" }, dir), /No such file/);
+	conn.close();
 	ide.server.close();
 });

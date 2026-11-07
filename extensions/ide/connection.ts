@@ -13,7 +13,10 @@ const CONNECT_TIMEOUT = 5_000;
 const CALL_TIMEOUT = 15_000;
 
 export interface ToolResult {
+	/** The text parts joined. */
 	text: string;
+	/** Each text part (openDiff answers FILE_SAVED and the file's contents in two). */
+	texts: string[];
 	isError: boolean;
 }
 
@@ -89,13 +92,10 @@ export class IdeConnection {
 
 	async callTool(name: string, args: Record<string, unknown>, timeout = CALL_TIMEOUT): Promise<ToolResult> {
 		const result = await this.request("tools/call", { name, arguments: args }, timeout);
-		const text = Array.isArray(result?.content)
-			? result.content
-					.filter((c: { type: string }) => c.type === "text")
-					.map((c: { text: string }) => c.text)
-					.join("\n")
-			: "";
-		return { text, isError: result?.isError === true };
+		const texts: string[] = Array.isArray(result?.content)
+			? result.content.filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text)
+			: [];
+		return { text: texts.join("\n"), texts, isError: result?.isError === true };
 	}
 
 	close(): void {

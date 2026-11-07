@@ -16,7 +16,7 @@ Extensions for [pi](https://pi.dev) in one package:
 - **image-paste** – attaches the images you paste (Ctrl+V), drag in or name by path in a prompt, so the model sees them directly
 - **work-status** – for every model: an animation in Claude Code style while a CLI provider works, a "✻ Cooked for 1m 12s" line after each answer, a working star in the terminal tab title, a macOS notification for long answers and a session title (and so tab name) written by the provider's smallest model
 - **commands** – general, useful commands for every model: `/clear`, `/effort`, `/export`
-- **ide** – connects pi to a JetBrains IDE (IntelliJ IDEA, WebStorm, Android Studio, …) or VS Code through their Claude Code plugin: the selection or open file stands above the editor and goes with the next message, Alt+K (or Cmd+Alt+K in the IDE) inserts a reference like `@src/foo.ts#L12-30`, and a running IDE without the plugin gets a hint
+- **ide** – connects pi to a JetBrains IDE (IntelliJ IDEA, WebStorm, Android Studio, …) or VS Code through their Claude Code plugin: the selection or open file stands above the editor and goes with the next message, Alt+K (or Cmd+Alt+K in the IDE) inserts a reference like `@src/foo.ts#L12-30`, a running IDE without the plugin gets a hint, and the way back: file references in the chat open in the IDE with a click, `/ide open` opens a file at a line, `/ide diff` shows a change in the IDE's diff viewer
 
 Each one can be switched on and off on its own with `pi config`.
 
@@ -727,7 +727,13 @@ Above the editor:
 - **Insert a reference**: `Alt+K` inserts `@src/foo.ts#L12-30` (or `@src/foo.ts` with nothing selected) into the editor; in the IDE, `Cmd+Alt+K` / "Send to Claude Code" does the same from there. Paths outside pi's folder stay absolute.
 - **Hint**: a supported IDE that runs without the plugin, or with it installed but no server running (switched off, or needs a restart), gets a line above the editor instead (`⧉ IntelliJ IDEA runs without the Claude Code plugin · …`); `/ide` hides it for good.
 
-`/ide` also connects to another IDE that has a lock file, or disconnects.
+**The way back to the IDE:**
+
+- **Links in the chat**: file references in answers and your messages – `` `src/foo.ts:12` ``, `src/foo.ts:12-30`, `@src/foo.ts#L12-30`, files that exist only – become links that open the file at that line in the connected IDE (Cmd+click in Ghostty, a click in pi's fullscreen mode). They use the IDE's URL scheme, so only for IDEs with their own: VS Code (`vscode://`), Cursor, Windsurf, IntelliJ IDEA (`idea://`), WebStorm, PyCharm; only in terminals with hyperlinks (OSC 8). `idea://` is also claimed by Android Studio; with both installed macOS may open either.
+- **`/ide open <file>[:line]`** opens a file in the connected IDE (any IDE, through its plugin), on that line and with it selected; takes the same forms as above.
+- **`/ide diff [file]`** shows a file's change since the last commit in the IDE's diff viewer – the committed version left, the file as it is now right; without a file it asks which of the changed files. The IDE waits for Accept or Reject; edits you make in the right pane and accept are saved to the file (unless it changed meanwhile).
+
+`/ide` without arguments lists what you can do: connect to another IDE that has a lock file, disconnect, show a diff, switch sending the selection off and on, hide hints.
 
 The IDE plugins serve one client at a time: a Claude Code started in the IDE's terminal takes the connection over from pi (and pi from it). pi then leaves that IDE alone until `/ide` connects it again.
 
@@ -814,6 +820,8 @@ Layout:
 | `extensions/ide/lockfiles.ts` | the IDE plugins' lock files and which IDE fits pi's folder |
 | `extensions/ide/connection.ts` | MCP client over WebSocket to the IDE: handshake, notifications, tool calls |
 | `extensions/ide/reference.ts` | selection → `@path#L12-30`, the label above the editor, the context for the model |
+| `extensions/ide/links.ts` | file references in the chat → links to the IDE, where `/ide open` lands in a file |
+| `extensions/ide/actions.ts` | opening a file and showing a diff in the IDE (`/ide open`, `/ide diff`) |
 | `extensions/ide/detect.ts` | running IDEs without (an active) Claude Code plugin, for the hint |
 | `extensions/shared/pi-mcp.ts` | pi's MCP servers from `mcp.json` in the shape the CLIs take |
 | `extensions/antigravity/mcp.ts` | mirror of the gemini folder with pi's MCP servers for agy |

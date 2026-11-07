@@ -11,15 +11,20 @@
  *   ("Send to Claude Code") does the same from there
  * - a supported IDE running without the plugin, or with it switched off, gets a
  *   hint instead
+ * The way back: file references in the chat (`src/foo.ts:12`, `@src/foo.ts#L12`)
+ * become links that open in the IDE, `/ide open <file:line>` opens one, and
+ * `/ide diff` shows a file's change since the last commit in the IDE's diff viewer.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { getCapabilities, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { changedFiles, type ChangedFile, openInIde, showDiff } from "./actions.ts";
 import { IdeConnection } from "./connection.ts";
 import { hintsFor, type IdeHint, integrationInstalled, listProcesses, parseProcesses, runningIdes } from "./detect.ts";
+import { absolutePath, linkFileReferences, openUrl, parseFileRef } from "./links.ts";
 import { type IdeLock, pickLock, readLocks } from "./lockfiles.ts";
 import {
 	contextFor,
@@ -248,10 +253,92 @@ export default function (pi: ExtensionAPI) {
 		return new Text(text, 0, 0);
 	});
 
+	/** Whether files exist, for links; forgotten every few seconds. */
+	let exists = new Map<string, boolean>();
+	let existsAt = 0;
+	const fileExists = (path: string) => {
+		const now = Date.now();
+		if (now - existsAt > 5_000) {
+			exists = new Map();
+			existsAt = now;
+		}
+		let found = exists.get(path);
+		if (found === undefined) {
+			found = existsSync(path);
+			exists.set(path, found);
+		}
+		return found;
+	};
+
+	pi.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
+		const conn = connection;
+		if (!conn?.open || isStreaming || messageType === "assistant-thinking" || !getCapabilities().hyperlinks) return markdown;
+		if (!openUrl(conn.ideName, "/")) return markdown;
+		const home = homedir();
+		return linkFileReferences(markdown, (ref) => {
+			const path = absolutePath(ref.path, cwd(), home);
+			return fileExists(path) ? openUrl(conn.ideName, path, ref.line) : undefined;
+		});
+	});
+
+	const openCommand = async (arg: string, ctx: ExtensionContext) => {
+		const conn = connection;
+		if (!conn?.open) return ctx.ui.notify("No IDE connected · /ide", "info");
+		const ref = parseFileRef(arg);
+		if (!ref) return ctx.ui.notify("Usage: /ide open <file>[:line]", "info");
+		try {
+			await openInIde(conn, ref, ctx.cwd);
+		} catch (error) {
+			ctx.ui.notify((error as Error).message, "error");
+		}
+	};
+
+	const diffCommand = async (arg: string, ctx: ExtensionContext) => {
+		const conn = connection;
+		if (!conn?.open) return ctx.ui.notify("No IDE connected · /ide", "info");
+		if (!conn.has("openDiff")) return ctx.ui.notify(`${conn.ideName} cannot show diffs`, "info");
+		let files: ChangedFile[];
+		try {
+			files = await changedFiles(ctx.cwd);
+		} catch {
+			return ctx.ui.notify("Not in a git repository", "info");
+		}
+		if (arg) {
+			const wanted = absolutePath(arg, ctx.cwd, homedir());
+			files = files.filter((f) => f.path === wanted);
+			if (files.length === 0) return ctx.ui.notify(`${arg} has no changes since the last commit`, "info");
+		} else if (files.length === 0) {
+			return ctx.ui.notify("No changes since the last commit", "info");
+		} else if (files.length > 1) {
+			const labels = files.map((f) => `${f.rel}${f.untracked ? " (new)" : ""}`);
+			const choice = await ctx.ui.select(`Show the change in ${conn.ideName}`, labels);
+			const file = choice === undefined ? undefined : files[labels.indexOf(choice)];
+			if (!file) return;
+			files = [file];
+		}
+		const file = files[0];
+		ctx.ui.notify(`${file.rel} opened in ${conn.ideName}'s diff viewer`, "info");
+		try {
+			const outcome = await showDiff(conn, file, ctx.cwd);
+			if (outcome === "saved") ctx.ui.notify(`${file.rel}: your edits from the diff were saved`, "info");
+			if (outcome === "changed meanwhile") ctx.ui.notify(`${file.rel} changed meanwhile; your edits from the diff were not saved`, "warning");
+		} catch (error) {
+			if (connection === conn) ctx.ui.notify((error as Error).message, "error");
+		}
+	};
+
 	pi.registerCommand("ide", {
-		description: "IDE connection: connect, disconnect, send the selection with messages, hints",
-		handler: async (_args, ctx) => {
+		description: "IDE connection: connect, disconnect, open <file:line>, diff [file], send the selection with messages, hints",
+		getArgumentCompletions: (prefix: string) => {
+			const items = ["open ", "diff "].filter((c) => c.startsWith(prefix)).map((c) => ({ value: c, label: c.trim() }));
+			return items.length > 0 ? items : null;
+		},
+		handler: async (args, ctx) => {
 			current = ctx;
+			const [sub, ...rest] = (args ?? "").trim().split(/\s+/);
+			const arg = rest.join(" ");
+			if (sub === "open") return openCommand(arg, ctx);
+			if (sub === "diff") return void diffCommand(arg, ctx);
 			const locks = readLocks();
 			if (!connection?.open) await checkHints();
 			const options: Array<{ label: string; run(): void | Promise<void> }> = [];
@@ -262,6 +349,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (connection?.open) {
 				const conn = connection;
+				if (conn.has("openDiff")) options.push({ label: "Show a changed file's diff in the IDE", run: () => void diffCommand("", ctx) });
 				options.push({
 					label: `Disconnect from ${conn.ideName}`,
 					run: () => {
