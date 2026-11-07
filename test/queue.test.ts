@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { hintsLine, keySymbol, MessageQueue, queueLines } from "../extensions/chat-view/queue.ts";
+import { hintAt, hintsLine, keySymbol, MessageQueue, queueClick, queueLines } from "../extensions/chat-view/queue.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -77,4 +77,29 @@ test("without the hints row, only the waiting messages are listed", () => {
 	const { lines, hintsWidth } = queueLines(theme, [{ kind: "steer", text: "now", at: 0 }], keys, 80, false);
 	assert.deepEqual(lines, [" ↪ Steer  now"]);
 	assert.equal(hintsWidth, 0);
+});
+
+test("a click on a hint does what its key does", () => {
+	const line = hintsLine(theme, keys, true);
+	const at = (word: string) => hintAt(keys, true, line.indexOf(word));
+	assert.equal(at("enter steer"), "steer");
+	assert.equal(at("ctrl+enter"), "now");
+	assert.equal(at("queue (when"), "queue");
+	assert.equal(at("edit waiting"), "edit");
+	assert.equal(at("escape stop"), "stop");
+	assert.equal(hintAt(keys, true, line.indexOf(" · ") + 1), undefined);
+	const compact = hintsLine(theme, keys, false, true);
+	assert.equal(hintAt(keys, false, compact.indexOf("esc"), true), "stop");
+});
+
+test("clicks on the panel: waiting messages go back to the editor, the hints row is right-aligned", () => {
+	const { hintsWidth } = queueLines(theme, [{ kind: "steer", text: "x", at: 0 }], keys, 200);
+	const start = 200 - hintsWidth;
+	assert.equal(queueClick(keys, 1, true, hintsWidth, 200, 3, 0), "edit");
+	assert.equal(queueClick(keys, 1, true, hintsWidth, 200, start, 1), "steer");
+	assert.equal(queueClick(keys, 1, true, hintsWidth, 200, start - 1, 1), undefined);
+	assert.equal(queueClick(keys, 1, true, hintsWidth, 200, 199, 1), undefined);
+	assert.equal(queueClick(keys, 1, true, hintsWidth, 200, start + hintsWidth - 3, 1), "stop");
+	// chat-crab shows the hints: no hints row.
+	assert.equal(queueClick(keys, 1, false, 0, 200, 150, 1), undefined);
 });

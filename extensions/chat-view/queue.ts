@@ -104,21 +104,61 @@ const KEY_SYMBOLS: Record<string, string> = {
 	down: "↓",
 };
 
+/** What a hint does when it is clicked, as its key would. */
+export type QueueAction = "steer" | "now" | "queue" | "edit" | "stop";
+
+/** The hints in order: what each does, its key and the words after it. */
+function hintItems(keys: QueueKeys, waiting: boolean, compact: boolean): { action: QueueAction; key: string; what: string }[] {
+	const item = (action: QueueAction, what: string) => ({ action, key: compact ? keySymbol(keys[action]) : keys[action], what });
+	return [
+		item("steer", compact ? "steer" : "steer (after this step)"),
+		item("now", compact ? "now" : "steer now"),
+		item("queue", compact ? "queue" : "queue (when done)"),
+		...(waiting ? [item("edit", compact ? "edit" : "edit waiting")] : []),
+		item("stop", "stop"),
+	];
+}
+
+const HINT_SEPARATOR = " · ";
+
 /**
  * The keys for steering, queueing, editing and stopping, in one line. Compact,
  * the keys are symbols and the words short, so it fits beside the crab.
  */
 export function hintsLine(theme: Theme, keys: QueueKeys, waiting: boolean, compact = false): string {
-	const key = (k: string, what: string) =>
-		`${theme.style(compact ? keySymbol(k) : k, { fg: "muted", bold: true })} ${theme.fg("dim", what)}`;
-	const hints = [
-		key(keys.steer, compact ? "steer" : "steer (after this step)"),
-		key(keys.now, compact ? "now" : "steer now"),
-		key(keys.queue, compact ? "queue" : "queue (when done)"),
-		...(waiting ? [key(keys.edit, compact ? "edit" : "edit waiting")] : []),
-		key(keys.stop, "stop"),
-	];
-	return `${hints.join(theme.fg("dim", " · "))} `;
+	const hints = hintItems(keys, waiting, compact).map(
+		({ key, what }) => `${theme.style(key, { fg: "muted", bold: true })} ${theme.fg("dim", what)}`,
+	);
+	return `${hints.join(theme.fg("dim", HINT_SEPARATOR))} `;
+}
+
+/** The hint at `column` of hintsLine's text (0 for its first column), if any. */
+export function hintAt(keys: QueueKeys, waiting: boolean, column: number, compact = false): QueueAction | undefined {
+	let start = 0;
+	for (const { action, key, what } of hintItems(keys, waiting, compact)) {
+		const end = start + visibleWidth(`${key} ${what}`);
+		if (column >= start && column < end) return action;
+		start = end + visibleWidth(HINT_SEPARATOR);
+	}
+	return undefined;
+}
+
+/**
+ * What a click at (`x`, `y`) on the rows of queueLines does: a waiting message
+ * goes back to the editor (edit), a hint does what its key does.
+ */
+export function queueClick(
+	keys: QueueKeys,
+	waiting: number,
+	hints: boolean,
+	hintsWidth: number,
+	width: number,
+	x: number,
+	y: number,
+): QueueAction | undefined {
+	if (y >= 0 && y < waiting) return "edit";
+	if (!hints || y !== waiting) return undefined;
+	return hintAt(keys, waiting > 0, x - (width - hintsWidth));
 }
 
 /**

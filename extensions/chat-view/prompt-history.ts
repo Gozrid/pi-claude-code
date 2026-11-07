@@ -7,6 +7,9 @@
  * newest leaves the list, and any other key edits the prompt. Each of them closes
  * the list, which shrinks back. Its frame closes into the editor's top border.
  *
+ * The mouse (fullscreen mode): a click on a prompt puts it into the editor, a
+ * double click sends it, the wheel walks the list.
+ *
  * Keys are caught before the editor sees them, and only while it has focus, so
  * dialogs keep their arrow keys. The list takes the place of pi's own ↑ history.
  *
@@ -14,8 +17,8 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isKeyRelease, matchesKey, type TUI } from "@earendil-works/pi-tui";
-import { borderColor, editorHasFocus, frameRow, frameTop, joinEditor } from "./editor-frame.ts";
+import { isKeyRelease, matchesKey, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
+import { borderColor, editorAction, editorHasFocus, frameRow, frameRowAt, frameTop, joinEditor } from "./editor-frame.ts";
 import { animatedRows, HistoryBrowser, userPrompts } from "./history.ts";
 
 const WIDGET = "prompt-history";
@@ -107,6 +110,30 @@ export function promptHistory(pi: ExtensionAPI): PromptHistoryState {
 		return undefined;
 	};
 
+	/** Clicks pick a prompt (two send it), the wheel walks the list; only while it is open. */
+	const onMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
+		if (!open || !browser) return undefined;
+		if (event.type === "wheel") {
+			if (event.wheelDelta && browser.move(Math.sign(event.wheelDelta))) setText(browser.current);
+			return { handled: true };
+		}
+		const row = frameRowAt(event, rows());
+		if (row === undefined || event.button !== "left") return undefined;
+		if (event.type === "press" || event.type === "release") return { handled: true, render: false };
+		if (event.type !== "click") return undefined;
+		if (!browser.pick(row, rows())) return { handled: true, render: false };
+		const text = browser.current;
+		setText(text);
+		if ((event.clickCount ?? 1) >= 2) {
+			setOpen(false);
+			if (!editorAction(tui, "submit")) {
+				setText("");
+				pi.sendUserMessage(text);
+			}
+		}
+		return { handled: true };
+	};
+
 	const reset = () => {
 		stopTimer();
 		open = false;
@@ -130,6 +157,7 @@ export function promptHistory(pi: ExtensionAPI): PromptHistoryState {
 					return [frameTop(color, width, theme.fg("muted", "History")), ...lines.map((line) => frameRow(color, width, line))];
 				},
 				invalidate() {},
+				handleMouse: onMouse,
 				dispose() {
 					stopTimer();
 				},

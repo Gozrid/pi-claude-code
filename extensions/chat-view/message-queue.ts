@@ -13,6 +13,9 @@
  * app.interrupt), so changes in keybindings.json show up here; steer now is this
  * extension's ctrl+enter.
  *
+ * The mouse (fullscreen mode): a click on a key does what the key does, a click
+ * on a waiting message takes the waiting messages back into the editor.
+ *
  * Usage:
  *   /queue [on|off]   show the panel or pi's own lines (toggles without an argument)
  *   ctrl+enter        steer now: stop the current step and send the editor text
@@ -22,12 +25,15 @@
  */
 
 import { type ExtensionAPI, type ExtensionContext, keyText } from "@earendil-works/pi-coding-agent";
-import { type Component, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, type TUI, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
+import { editorAction } from "./editor-frame.ts";
 import {
 	HINTS_HOST_CHANNEL,
 	hintsLine,
 	MessageQueue,
+	type QueueAction,
 	QUEUE_HINTS_CHANNEL,
+	queueClick,
 	type QueueHints,
 	type QueueKeys,
 	queueLines,
@@ -96,6 +102,24 @@ export function messageQueue(pi: ExtensionAPI) {
 		pi.sendUserMessage(text, context.isIdle() ? undefined : { deliverAs: "steer" });
 	};
 
+	/** Does what the key of `action` does, from a click on its hint. */
+	const act = (context: ExtensionContext, tui: TUI, action: QueueAction) => {
+		const text = context.ui.getEditorText().trim();
+		if (action === "steer") {
+			if (text) editorAction(tui, "submit");
+		} else if (action === "now") {
+			if (!text) return;
+			context.ui.setEditorText("");
+			void steerNow(context, text);
+		} else if (action === "queue") {
+			if (text) editorAction(tui, "app.message.followUp");
+		} else if (action === "edit") {
+			editorAction(tui, "app.message.dequeue");
+		} else if (!editorAction(tui, "app.interrupt")) {
+			context.abort();
+		}
+	};
+
 	const working = () => {
 		try {
 			return !!ctx && !ctx.isIdle();
@@ -128,6 +152,8 @@ export function messageQueue(pi: ExtensionAPI) {
 		if (context.mode !== "tui") return;
 		context.ui.setWidget(WIDGET, (tui, theme) => {
 			requestRender = () => tui.requestRender();
+			/** What the rows last showed, for the mouse. */
+			let drawn = { waiting: 0, hints: false, hintsWidth: 0, width: 0 };
 			return {
 				render(width: number): string[] {
 					if (!working()) {
@@ -136,7 +162,8 @@ export function messageQueue(pi: ExtensionAPI) {
 					}
 					sync();
 					if (queue.messages.length > 0) hidePiQueue(tui);
-					const { lines } = queueLines(theme, queue.messages, keys(), width, !crabHosts);
+					const { lines, hintsWidth } = queueLines(theme, queue.messages, keys(), width, !crabHosts);
+					drawn = { waiting: queue.messages.length, hints: !crabHosts, hintsWidth, width };
 					if (crabHosts) {
 						const line = hintsLine(theme, keys(), queue.messages.length > 0, true);
 						publishHints({ line, width: visibleWidth(line) });
@@ -144,6 +171,15 @@ export function messageQueue(pi: ExtensionAPI) {
 					return lines;
 				},
 				invalidate() {},
+				handleMouse(event: TuiMouseEvent) {
+					if (!ctx || !working() || event.button !== "left") return undefined;
+					const action = queueClick(keys(), drawn.waiting, drawn.hints, drawn.hintsWidth, drawn.width, event.x, event.y);
+					if (!action) return undefined;
+					if (event.type === "press" || event.type === "release") return { handled: true, render: false };
+					if (event.type !== "click") return undefined;
+					act(ctx, tui, action);
+					return { handled: true };
+				},
 				dispose() {
 					requestRender = undefined;
 				},

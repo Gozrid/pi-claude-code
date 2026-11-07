@@ -63,3 +63,19 @@ test("grows and shrinks one row per step, never past the target", () => {
 	assert.equal(animatedRows(5, 0, 25, 20), 4);
 	assert.equal(animatedRows(5, 0, 1000, 20), 0);
 });
+
+test("a click picks the prompt on its row, also while the list is still growing", () => {
+	const prompts = Array.from({ length: HISTORY_ROWS + 2 }, (_, i) => `p${i}`);
+	const browser = new HistoryBrowser(prompts);
+	// The full list shows p2…p9 (the newest eight).
+	assert.ok(browser.pick(0));
+	assert.equal(browser.current, "p2");
+	assert.ok(browser.pick(HISTORY_ROWS - 1));
+	assert.equal(browser.current, "p9");
+	// Three rows grown: only the bottom three, p7…p9.
+	assert.ok(browser.pick(0, 3));
+	assert.equal(browser.current, "p7");
+	assert.equal(browser.pick(3, 3), false);
+	assert.equal(browser.pick(-1), false);
+	assert.equal(browser.current, "p7");
+});

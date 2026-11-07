@@ -52,6 +52,18 @@ export class HistoryBrowser {
 		return true;
 	}
 
+	/**
+	 * Selects the prompt on `row` of what `lines(theme, width, rows)` shows (a click
+	 * on it); false when there is no prompt on that row.
+	 */
+	pick(row: number, rows = this.height): boolean {
+		const inView = Math.min(HISTORY_ROWS, this.prompts.length - this.top);
+		const shown = Math.min(rows, inView);
+		if (row < 0 || row >= shown) return false;
+		this.selected = this.top + inView - shown + row;
+		return true;
+	}
+
 	get current(): string {
 		return this.prompts[this.selected] ?? "";
 	}

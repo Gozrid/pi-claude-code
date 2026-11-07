@@ -7,13 +7,16 @@
  * border, growing and shrinking row by row. pi still does the searching,
  * selecting, Tab and Enter; only where and how the list shows changes.
  *
+ * The mouse (fullscreen mode) works on the frame as on pi's own list: a click on
+ * a suggestion applies it like Tab, the wheel moves the selection.
+ *
  * pi has no hook for this, so the editor instance's render is wrapped to leave
  * its suggestion rows out, and the widget draws pi's list itself.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
-import { borderColor, findEditor, frameRow, frameTop, joinEditor } from "./editor-frame.ts";
+import type { TUI, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
+import { borderColor, findEditor, frameRow, frameRowAt, frameTop, joinEditor } from "./editor-frame.ts";
 import { animatedRows, HISTORY_ROWS } from "./history.ts";
 
 const WIDGET = "command-list";
@@ -26,10 +29,34 @@ interface SuggestingEditor {
 	render(width: number): string[];
 	getText(): string;
 	autocompleteState?: unknown;
-	autocompleteList?: { render(width: number): string[] };
+	autocompleteList?: SuggestionList;
 	renderedAutocompleteHeight?: number;
 	setAutocompleteMaxVisible?(rows: number): void;
 	[WRAPPED]?: true;
+}
+
+/** pi's suggestion list (a SelectList): it draws the rows and takes the mouse on them. */
+interface SuggestionList {
+	render(width: number): string[];
+	handleMouse?(event: TuiMouseEvent): TuiMouseEventResult | undefined;
+}
+
+/**
+ * Hands a mouse event on the frame to pi's list, in the list's own coordinates:
+ * a click on row `n` of `rows` shown is a click on its row `n`, the wheel moves
+ * the selection. The editor keeps the focus.
+ */
+export function listMouse(list: SuggestionList, event: TuiMouseEvent, rows: number): TuiMouseEventResult | undefined {
+	if (event.type === "wheel") {
+		list.handleMouse?.({ ...event, x: 0, y: 0, width: Math.max(1, event.width - 4), height: rows });
+		return { handled: true };
+	}
+	const row = frameRowAt(event, rows);
+	if (row === undefined) return undefined;
+	const result = list.handleMouse?.({ ...event, x: Math.max(0, event.x - 2), y: row, width: Math.max(1, event.width - 4), height: rows });
+	if (!result) return event.type === "press" || event.type === "release" ? { handled: true, render: false } : undefined;
+	const { focus: _focus, ...rest } = result;
+	return { ...rest, handled: true };
 }
 
 const ANSI = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07]*\x07/g;
@@ -70,6 +97,8 @@ export function commandList(pi: ExtensionAPI): CommandListState {
 	let target = 0;
 	let since = 0;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	/** pi's list while it is open, for the mouse. */
+	let openList: SuggestionList | undefined;
 
 	const shown = () => (STATIC ? target : animatedRows(from, target, Date.now() - since, MS_PER_ROW));
 	const showing = () => shown() > 0;
@@ -100,6 +129,7 @@ export function commandList(pi: ExtensionAPI): CommandListState {
 					if (!editor[WRAPPED]) wrap(editor);
 					joinEditor(ui, () => (showing() ? {} : undefined));
 					const list = editor.autocompleteState ? editor.autocompleteList : undefined;
+					openList = list;
 					if (list) {
 						const opening = target === 0;
 						const { rows, counter } = splitCounter(list.render(width - 4));
@@ -118,6 +148,11 @@ export function commandList(pi: ExtensionAPI): CommandListState {
 					return [frameTop(color, width, theme.fg("muted", last.title), note), ...view.map((row) => frameRow(color, width, row))];
 				},
 				invalidate() {},
+				handleMouse(event: TuiMouseEvent) {
+					// Only on the full list, not while it grows or shrinks.
+					if (!openList || !last || shown() !== target) return undefined;
+					return listMouse(openList, event, last.rows.length);
+				},
 			};
 		});
 	};

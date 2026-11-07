@@ -506,6 +506,8 @@ While the agent works, the keys for writing to it in between stand right-aligned
 - **Edit** (Option+↑): brings all waiting messages back into the editor
 - **Stop** (Escape): cancels the run; waiting messages come back into the editor
 
+With the mouse (pi's fullscreen mode), a click on a key in the panel does the same as the key (steer and queue take the editor's text), and a click on a waiting message brings the waiting messages back into the editor. The short keys beside chat-crab's Clawd are not clickable.
+
 The keys come from pi's keybindings (`tui.input.submit`, `app.message.followUp`, `app.message.dequeue`, `app.interrupt`), so changes in `keybindings.json` show up here too; Ctrl+Enter needs a terminal that tells it apart from Enter (kitty keyboard protocol, e.g. Ghostty, kitty, iTerm2) – otherwise use `/now`. pi's own "Steering: …" / "Follow-up: …" lines are hidden while the list shows them. While chat-crab's Clawd is shown, the keys move onto its row in short form, with symbols for the keys.
 
 - `/queue [on|off]` switches the panel on or off (off: pi's own lines again; toggles without an argument)
@@ -617,6 +619,7 @@ Give me an example
 - ↑/↓ walk the list; the selected prompt goes straight into the editor
 - Enter sends it, any other key edits it, Esc empties the editor, ↓ past the newest leaves the list empty; each closes the list, which shrinks back
 - At most 8 rows; longer histories scroll, long prompts are cut to one line
+- With the mouse (pi's fullscreen mode): a click puts a prompt into the editor, a double click sends it, the wheel walks the list
 - With text in the editor or a dialog open, ↑ does what it did before
 - `PI_HISTORY_STATIC=1` opens and closes it without animation
 
@@ -633,7 +636,7 @@ pi's suggestions while you type – /commands, and files after `@` or Tab – sh
 ────────────────────────────────────────
 ```
 
-pi still does the searching, selecting, Tab and Enter; only where and how the list shows changes. The title says "Commands" when the text starts with `/`, "Files" otherwise. `PI_HISTORY_STATIC=1` turns its animation off too.
+pi still does the searching, selecting, Tab and Enter; only where and how the list shows changes. With the mouse (pi's fullscreen mode), a click on a suggestion applies it like Tab, and the wheel moves the selection. The title says "Commands" when the text starts with `/`, "Files" otherwise. `PI_HISTORY_STATIC=1` turns its animation off too.
 
 ### Answer box
 

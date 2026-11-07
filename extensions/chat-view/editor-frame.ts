@@ -52,6 +52,42 @@ export function borderColor(tui: TUI): (text: string) => string {
 	return editor?.borderColor ? editor.borderColor.bind(editor) : (text) => text;
 }
 
+/**
+ * The content row (0 for the first) a mouse event inside a frame of `rows` rows
+ * is on: below the top edge, between the side lines; undefined elsewhere.
+ */
+export function frameRowAt(event: { x: number; y: number; width: number }, rows: number): number | undefined {
+	const row = event.y - 1;
+	if (row < 0 || row >= rows || event.x < 1 || event.x > event.width - 2) return undefined;
+	return row;
+}
+
+/** What of pi's editor (CustomEditor) the mouse uses to do what its keys do. */
+interface ActingEditor {
+	submitValue?(): void;
+	onEscape?: () => void;
+	actionHandlers?: Map<string, () => void>;
+}
+
+/**
+ * Does in pi's editor what one of its keys does: "submit" is enter, otherwise an
+ * app action such as "app.message.followUp" or "app.interrupt". False when the
+ * editor has no such handler (an editor replaced by another extension).
+ */
+export function editorAction(tui: TUI | undefined, action: string): boolean {
+	const editor = tui ? (findEditor(tui) as (EditorLike & ActingEditor) | undefined) : undefined;
+	if (!editor) return false;
+	const handler =
+		action === "submit"
+			? editor.submitValue?.bind(editor)
+			: action === "app.interrupt"
+				? (editor.onEscape ?? editor.actionHandlers?.get(action))
+				: editor.actionHandlers?.get(action);
+	if (typeof handler !== "function") return false;
+	handler();
+	return true;
+}
+
 /** The frame's top edge, with a title at the left and an optional note at the right. */
 export function frameTop(color: (text: string) => string, width: number, title: string, note = ""): string {
 	const right = note ? ` ${note} ${color("─╮")}` : color("╮");
