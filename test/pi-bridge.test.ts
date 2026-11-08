@@ -248,6 +248,35 @@ test("multiple choice toggles with space; tab moves between questions; esc cance
 	assert.equal(formatAnswers(undefined), "The user closed the dialog without answering.");
 });
 
+test("a long preview is wrapped and scrolls in a window so the options stay in view", () => {
+	let result: AskAnswer[] | undefined | null = null;
+	const preview = [`$ ${"x".repeat(150)}END`, ...Array.from({ length: 40 }, (_, i) => `line ${i + 1}`)].join("\n");
+	const d = new AskDialog(undefined, [{ question: "Run?", preview, options: [{ label: "Allow" }, { label: "Deny" }] }], theme, () => {}, (a) => {
+		result = a;
+	}, () => 20);
+	let screen = d.render(80);
+	assert.ok(screen.length <= 20, `${screen.length} rows`);
+	assert.match(screen.join("\n"), /1\. Allow/);
+	assert.match(screen.join("\n"), /2\. Deny/);
+	assert.match(screen.join("\n"), /↓ \d+ more · PgUp\/PgDn/);
+	// The long command is wrapped, not cut: its end is on the next row.
+	assert.ok(screen.some((l) => l.includes("END")));
+	// PgDn and the wheel over the preview scroll it; the options stay.
+	d.handleInput("\x1b[6~");
+	screen = d.render(80);
+	assert.match(screen.join("\n"), /↑ \d+ more/);
+	const previewRow = screen.findIndex((l) => /line \d+/.test(l));
+	for (let i = 0; i < 50; i++) d.handleMouse({ type: "wheel", button: "none", x: 0, y: previewRow, wheelDelta: 1 } as any);
+	screen = d.render(80);
+	assert.match(screen.join("\n"), /line 40/);
+	assert.doesNotMatch(screen.join("\n"), /↓ \d+ more/);
+	assert.ok(screen.length <= 20);
+	// The keys still choose; a click on an option still lands on it.
+	const deny = screen.findIndex((l) => /2\. Deny/.test(l));
+	d.handleMouse({ type: "click", button: "left", x: 6, y: deny, clickCount: 1 } as any);
+	assert.deepEqual(result, [{ question: "Run?", selected: ["Deny"] }]);
+});
+
 test("the mouse: a click chooses an option or toggles it, picks a tab, puts the cursor in the own answer; the wheel moves", () => {
 	const { d, type, result } = dialog([
 		{ question: "Pick", header: "One", options: [{ label: "a" }, { label: "b", description: "the b" }] },

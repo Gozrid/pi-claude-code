@@ -17,6 +17,10 @@
  * The mouse (pi's fullscreen mode): a click on an option chooses it (toggles it
  * when several may be chosen), on the own answer or the extra field puts the
  * cursor there, on a question tab switches to it; the wheel moves the cursor.
+ *
+ * The dialog never grows taller than the terminal: a long preview (a command,
+ * a diff) is wrapped and shown in a window that scrolls with PgUp/PgDn,
+ * Shift+↑↓ or the wheel over it, so the options always stay in view.
  */
 
 import {
@@ -119,7 +123,8 @@ type RowTarget =
 	| { kind: "option"; index: number }
 	| { kind: "own"; column: number }
 	| { kind: "extra"; column: number }
-	| { kind: "tabs"; spans: { from: number; to: number; index: number }[] };
+	| { kind: "tabs"; spans: { from: number; to: number; index: number }[] }
+	| { kind: "preview" };
 
 interface QuestionState {
 	cursor: number;
@@ -127,9 +132,13 @@ interface QuestionState {
 	own: Input;
 	extra: Input;
 	answered: boolean;
+	/** First preview line shown when the preview has to scroll. */
+	scroll: number;
 }
 
 const INDENT = "  ";
+/** The preview window never gets smaller than this, however little room there is. */
+const MIN_PREVIEW_ROWS = 3;
 
 export class AskDialog {
 	private index = 0;
@@ -142,6 +151,12 @@ export class AskDialog {
 	private readonly done: (answers: AskAnswer[] | undefined) => void;
 	/** What each row drawn last stands for, for the mouse. */
 	private targets: (RowTarget | undefined)[] = [];
+	/** Most rows the dialog may take, asked on every render (the terminal can be resized). */
+	private readonly maxRows: () => number;
+	/** How far the preview of the question drawn last can scroll. */
+	private maxScroll = 0;
+	/** Lets PgUp/PgDn reach the dialog in pi's fullscreen mode instead of scrolling the chat. */
+	readonly capturesViewportInput = true;
 
 	constructor(
 		title: string | undefined,
@@ -149,7 +164,9 @@ export class AskDialog {
 		theme: Theme,
 		requestRender: () => void,
 		done: (answers: AskAnswer[] | undefined) => void,
+		maxRows: () => number = () => Number.POSITIVE_INFINITY,
 	) {
+		this.maxRows = maxRows;
 		this.title = title;
 		this.questions = questions;
 		this.theme = theme;
@@ -159,7 +176,7 @@ export class AskDialog {
 			const own = new Input();
 			const extra = new Input();
 			const recommended = (q.options ?? []).findIndex((o) => o.recommended);
-			return { cursor: Math.max(0, recommended), selected: new Set<number>(), own, extra, answered: false };
+			return { cursor: Math.max(0, recommended), selected: new Set<number>(), own, extra, answered: false, scroll: 0 };
 		});
 		for (const state of this.states) {
 			state.own.onSubmit = () => this.submitOwn();
@@ -211,6 +228,21 @@ export class AskDialog {
 		this.focus = this.state.cursor === this.ownRow ? "own" : "list";
 		this.refresh();
 	}
+
+	private scrollPreview(delta: number): void {
+		const state = this.state;
+		const scroll = Math.min(this.maxScroll, Math.max(0, state.scroll + delta));
+		if (scroll === state.scroll) return;
+		state.scroll = scroll;
+		this.requestRender();
+	}
+
+	/** Rows a page of the preview moves. */
+	private get page(): number {
+		return Math.max(1, this.previewRows - 1);
+	}
+
+	private previewRows = MIN_PREVIEW_ROWS;
 
 	private goTo(index: number): void {
 		this.index = Math.min(this.questions.length - 1, Math.max(0, index));
@@ -273,6 +305,10 @@ export class AskDialog {
 
 	handleInput(data: string): void {
 		const state = this.state;
+		if (matchesKey(data, Key.pageUp)) return this.scrollPreview(-this.page);
+		if (matchesKey(data, Key.pageDown)) return this.scrollPreview(this.page);
+		if (matchesKey(data, Key.shift("up"))) return this.scrollPreview(-1);
+		if (matchesKey(data, Key.shift("down"))) return this.scrollPreview(1);
 		if (this.focus === "extra") {
 			if (matchesKey(data, Key.escape)) {
 				this.focus = state.cursor === this.ownRow ? "own" : "list";
@@ -313,7 +349,8 @@ export class AskDialog {
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
 		if (event.type === "wheel" && event.wheelDelta) {
-			if (this.focus !== "extra") this.move(event.wheelDelta < 0 ? -1 : 1);
+			if (this.targets[event.y]?.kind === "preview") this.scrollPreview(event.wheelDelta);
+			else if (this.focus !== "extra") this.move(event.wheelDelta < 0 ? -1 : 1);
 			return { handled: true };
 		}
 		if (event.type !== "press" && event.type !== "release" && event.type !== "click") return undefined;
@@ -322,6 +359,8 @@ export class AskDialog {
 		if (event.button !== "left" || !target) return consumed;
 		const state = this.state;
 		switch (target.kind) {
+			case "preview":
+				return consumed;
 			case "tabs": {
 				if (event.type !== "click") return consumed;
 				const tab = target.spans.find((span) => event.x >= span.from && event.x < span.to);
@@ -352,13 +391,14 @@ export class AskDialog {
 
 	render(width: number): string[] {
 		const { theme } = this;
-		const targets: (RowTarget | undefined)[] = [];
 		const question = this.question;
 		const state = this.state;
 		const inner = Math.max(10, width - INDENT.length * 2);
-		const lines: string[] = [theme.fg("accent", "─".repeat(width))];
-		if (this.title) lines.push(`${INDENT}${theme.fg("muted", this.title)}`);
 
+		// The dialog in three parts; only the preview in the middle shrinks.
+		const head: string[] = [theme.fg("accent", "─".repeat(width))];
+		const headTargets: (RowTarget | undefined)[] = [];
+		if (this.title) head.push(`${INDENT}${theme.fg("muted", this.title)}`);
 		if (this.questions.length > 1) {
 			const spans: { from: number; to: number; index: number }[] = [];
 			let column = INDENT.length;
@@ -372,21 +412,21 @@ export class AskDialog {
 					return i === this.index ? theme.bold(theme.fg("accent", text)) : theme.fg("dim", text);
 				})
 				.join(" ");
-			targets[lines.length] = { kind: "tabs", spans };
-			lines.push(`${INDENT}${tabs}`);
+			headTargets[head.length] = { kind: "tabs", spans };
+			head.push(`${INDENT}${tabs}`);
 		} else if (question.header) {
-			lines.push(`${INDENT}${theme.fg("accent", question.header)}`);
+			head.push(`${INDENT}${theme.fg("accent", question.header)}`);
 		}
-		for (const line of wrapTextWithAnsi(theme.bold(question.question), inner)) lines.push(`${INDENT}${line}`);
-		if (question.preview) {
-			lines.push("");
-			for (const raw of question.preview.split("\n")) {
-				const color = raw.startsWith("+ ") ? "success" : raw.startsWith("- ") ? "error" : "muted";
-				lines.push(`${INDENT}  ${theme.fg(color, raw)}`);
-			}
-		}
-		lines.push("");
+		for (const line of wrapTextWithAnsi(theme.bold(question.question), inner)) head.push(`${INDENT}${line}`);
 
+		const preview: string[] = [];
+		for (const raw of question.preview?.split("\n") ?? []) {
+			const color = raw.startsWith("+ ") ? "success" : raw.startsWith("- ") ? "error" : "muted";
+			for (const line of wrapTextWithAnsi(raw, Math.max(8, inner - 2))) preview.push(`${INDENT}  ${theme.fg(color, line)}`);
+		}
+
+		const tail: string[] = [""];
+		const tailTargets: (RowTarget | undefined)[] = [];
 		this.options.forEach((option, i) => {
 			const here = state.cursor === i && this.focus === "list";
 			const chosen = state.selected.has(i);
@@ -394,30 +434,60 @@ export class AskDialog {
 			const pointer = here ? theme.fg("accent", "›") : " ";
 			const label = here ? theme.bold(theme.fg("accent", option.label)) : option.label;
 			const tag = option.recommended ? theme.fg("success", "  recommended") : "";
-			targets[lines.length] = { kind: "option", index: i };
-			lines.push(`${INDENT}${pointer} ${theme.fg(chosen ? "accent" : "dim", box)} ${theme.fg("dim", `${i + 1}.`)} ${label}${tag}`);
+			tailTargets[tail.length] = { kind: "option", index: i };
+			tail.push(`${INDENT}${pointer} ${theme.fg(chosen ? "accent" : "dim", box)} ${theme.fg("dim", `${i + 1}.`)} ${label}${tag}`);
 			if (option.description) {
 				for (const line of wrapTextWithAnsi(option.description, inner - 7)) {
-					targets[lines.length] = { kind: "option", index: i };
-					lines.push(`${INDENT}       ${theme.fg("muted", line)}`);
+					tailTargets[tail.length] = { kind: "option", index: i };
+					tail.push(`${INDENT}       ${theme.fg("muted", line)}`);
 				}
 			}
 		});
 		const onOwn = state.cursor === this.ownRow && this.focus !== "extra";
 		const ownLabel = this.options.length > 0 ? "Own answer:" : "Answer:";
 		const ownField = state.own.render(Math.max(10, inner - ownLabel.length - 6))[0] ?? "";
-		targets[lines.length] = { kind: "own", column: INDENT.length + 5 + ownLabel.length };
-		lines.push(
+		tailTargets[tail.length] = { kind: "own", column: INDENT.length + 5 + ownLabel.length };
+		tail.push(
 			`${INDENT}${onOwn ? theme.fg("accent", "›") : " "} ${theme.fg(onOwn ? "accent" : "dim", "✎")} ${onOwn ? theme.bold(ownLabel) : theme.fg("muted", ownLabel)} ${ownField}`,
 		);
 
 		const prompt = this.extraPrompt();
 		if (prompt && (this.focus === "extra" || state.extra.getValue())) {
-			lines.push("");
-			lines.push(`${INDENT}${theme.fg(this.focus === "extra" ? "accent" : "muted", prompt)}`);
-			targets[lines.length] = { kind: "extra", column: INDENT.length };
-			lines.push(`${INDENT}${state.extra.render(inner)[0] ?? ""}`);
+			tail.push("");
+			tail.push(`${INDENT}${theme.fg(this.focus === "extra" ? "accent" : "muted", prompt)}`);
+			tailTargets[tail.length] = { kind: "extra", column: INDENT.length };
+			tail.push(`${INDENT}${state.extra.render(inner)[0] ?? ""}`);
 		}
+
+		// How much of the preview fits: all of it, or a scrolling window with a line saying where it stands.
+		const room = this.maxRows() - head.length - tail.length - 4; // blank above the preview, blank and keys below, bottom border
+		const scrolls = preview.length > Math.max(0, room);
+		const rows = scrolls ? Math.max(MIN_PREVIEW_ROWS, room - 1) : preview.length;
+		this.previewRows = rows;
+		this.maxScroll = scrolls ? preview.length - rows : 0;
+		state.scroll = Math.min(state.scroll, this.maxScroll);
+
+		const lines = [...head];
+		const targets = [...headTargets];
+		if (preview.length > 0) {
+			lines.push("");
+			for (const line of preview.slice(state.scroll, state.scroll + rows)) {
+				targets[lines.length] = { kind: "preview" };
+				lines.push(line);
+			}
+			if (scrolls) {
+				const above = state.scroll;
+				const below = preview.length - state.scroll - rows;
+				const where = [above > 0 ? `↑ ${above} more` : undefined, below > 0 ? `↓ ${below} more` : undefined].filter(Boolean).join(" · ");
+				targets[lines.length] = { kind: "preview" };
+				lines.push(`${INDENT}  ${theme.fg("dim", `${where} · PgUp/PgDn or wheel scrolls`)}`);
+			}
+		}
+		const offset = lines.length;
+		tailTargets.forEach((target, i) => {
+			targets[offset + i] = target;
+		});
+		lines.push(...tail);
 
 		lines.push("");
 		const keys =
@@ -444,12 +514,13 @@ export class AskDialog {
 }
 
 interface AskUI {
-	custom<T>(factory: (tui: { requestRender(): void }, theme: any, keybindings: any, done: (result: T) => void) => any): Promise<T>;
+	custom<T>(factory: (tui: { requestRender(): void; terminal?: { rows: number } }, theme: any, keybindings: any, done: (result: T) => void) => any): Promise<T>;
 }
 
 /** Shows the dialog; resolves to the answers, or undefined when the user cancelled. */
 export function ask(ui: AskUI, questions: AskQuestion[], title?: string): Promise<AskAnswer[] | undefined> {
 	return ui.custom<AskAnswer[] | undefined>(
-		(tui, theme, _keybindings, done) => new AskDialog(title, questions, theme, () => tui.requestRender(), done),
+		(tui, theme, _keybindings, done) =>
+			new AskDialog(title, questions, theme, () => tui.requestRender(), done, () => Math.max(12, (tui.terminal?.rows ?? 40) - 4)),
 	);
 }

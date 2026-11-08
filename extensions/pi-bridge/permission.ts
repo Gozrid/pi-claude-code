@@ -77,7 +77,8 @@ export function describe({ tool, input }: PermissionRequest, agent: string): { t
 	return { title: `${agent} wants to use ${tool}`, preview: args === "{}" ? undefined : args };
 }
 
-const MAX_PREVIEW_LINES = 16;
+/** The dialog scrolls the preview, so only huge files are cut. */
+const MAX_PREVIEW_LINES = 500;
 
 function clip(lines: string[]): string {
 	if (lines.length <= MAX_PREVIEW_LINES) return lines.join("\n");
