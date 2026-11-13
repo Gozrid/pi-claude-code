@@ -28,11 +28,17 @@
  *
  * Steps (steps.ts) are a stepper an agent shows above the editor for a job of
  * several steps and moves on as it works; `/steps` hides it.
+ *
+ * Workflows (workflow.ts, workflow-runner.ts, workflow-view.ts) are big tasks
+ * the agent plans as a tree of parts and does part by part in subagents: the
+ * user reviews the plan in a popup, the progress stands above the editor, and a
+ * click on it or `/workflow` opens the tree to follow and steer it.
  */
 
 import { spawn } from "node:child_process";
 import { unwatchFile, watchFile } from "node:fs";
-import { copyToClipboard, type ExtensionAPI, type ExtensionContext, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { copyToClipboard, type ExtensionAPI, type ExtensionContext, getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Markdown, type OverlayOptions, Text, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
 import { BRIDGE_CHANNEL, type BridgeRequest } from "../shared/agent-bus.ts";
@@ -40,7 +46,11 @@ import { BridgeServer } from "./server.ts";
 import { McpProxy } from "./mcp-proxy.ts";
 import { PI_MCP_SOURCE } from "../shared/pi-mcp.ts";
 import { GATE_RULES, GATED_MODES, HOOK_TIMEOUT } from "./agy-gate.ts";
-import { agyHook, bridgeTools, type ClientData, type Host, SERVER_INSTRUCTIONS, wishesFileOf } from "./tools.ts";
+import { agyHook, bridgeTools, type ClientData, type Host, oneAtATime, SERVER_INSTRUCTIONS, wishesFileOf } from "./tools.ts";
+import { ask } from "./ask.ts";
+import { type Workflow, WorkflowStore } from "./workflow.ts";
+import { type ReviewResult, WorkflowRunner } from "./workflow-runner.ts";
+import { WorkflowBrowser, workflowLines } from "./workflow-view.ts";
 import { readWishes, setWishStatus, wishLineIds, wishLines } from "./wishes.ts";
 import { WishBrowser, workPrompt } from "./wish-popup.ts";
 import { endHeadline, endMessage, formatElapsed, watchLines, Watches, type WatchEnd } from "./watch.ts";
@@ -57,6 +67,10 @@ const WISH_WIDGET = "pi-bridge-wishes";
 const WATCH_WIDGET = "pi-bridge-watches";
 const WATCH_MESSAGE = "pi-watch";
 const STEPS_WIDGET = "pi-bridge-steps";
+const WORKFLOW_WIDGET = "pi-bridge-workflow";
+const WORKFLOW_MESSAGE = "pi-workflow";
+/** How long a finished workflow stays above the editor. */
+const WORKFLOW_LINGER_MS = 10_000;
 const POPUP_LAYOUT = { width: "90%", minWidth: 40, maxHeight: "90%", anchor: "center" } satisfies OverlayOptions;
 /** Frames of the opening animation. */
 const FRAME_MS = 33;
@@ -340,6 +354,212 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+
+	// Workflows: the progress above the editor, the popup with the tree (review and while it runs).
+	let workflowPopup: { id: number; close(): void } | undefined;
+	let refreshWorkflow: (() => void) | undefined;
+	let workflowShown = false;
+	let workflowLinger: ReturnType<typeof setTimeout> | undefined;
+	const workflowVisible = (w: Workflow | undefined) =>
+		Boolean(w) && (!["done", "stopped"].includes(w!.state) || Date.now() - w!.updatedAt < WORKFLOW_LINGER_MS);
+	const showWorkflow = () => {
+		const ctx = current;
+		const workflow = host.workflows?.current;
+		if (workflowLinger) clearTimeout(workflowLinger);
+		workflowLinger = undefined;
+		if (workflow && workflowVisible(workflow) && ["done", "stopped"].includes(workflow.state)) {
+			workflowLinger = setTimeout(showWorkflow, WORKFLOW_LINGER_MS);
+			workflowLinger.unref?.();
+		}
+		if (ctx?.mode !== "tui") return;
+		const visible = workflowVisible(workflow);
+		if (visible === workflowShown) {
+			refreshWorkflow?.();
+			return;
+		}
+		workflowShown = visible;
+		try {
+			if (!visible) {
+				refreshWorkflow = undefined;
+				ctx.ui.setWidget(WORKFLOW_WIDGET, undefined);
+				return;
+			}
+			ctx.ui.setWidget(WORKFLOW_WIDGET, (tui, theme) => {
+				let frame = 0;
+				let ticker: ReturnType<typeof setInterval> | undefined;
+				const tick = () => {
+					const running = host.workflows?.current?.state === "running";
+					if (running && !ticker) {
+						ticker = setInterval(() => {
+							frame++;
+							tui.requestRender();
+						}, SPINNER_MS);
+						ticker.unref?.();
+					} else if (!running && ticker) {
+						clearInterval(ticker);
+						ticker = undefined;
+					}
+				};
+				refreshWorkflow = () => {
+					tick();
+					tui.requestRender();
+				};
+				tick();
+				return {
+					render: (width: number) => {
+						const shown = host.workflows?.current;
+						return shown ? workflowLines(theme, shown, width, frame) : [];
+					},
+					handleMouse: (event: TuiMouseEvent) => {
+						if (event.type !== "click" || event.button !== "left") return event.type === "wheel" ? undefined : { handled: true, render: false };
+						const shown = host.workflows?.current;
+						if (shown && current) openWorkflow(current, shown);
+						return { handled: true };
+					},
+					invalidate() {},
+					dispose: () => {
+						if (ticker) clearInterval(ticker);
+					},
+				};
+			});
+		} catch {
+			// Stale context after a reload or session switch.
+			workflowShown = false;
+			refreshWorkflow = undefined;
+		}
+	};
+	/** Opens the tree; with `review` the user approves the plan or sends it back. */
+	const openWorkflow = (ctx: ExtensionContext, workflow: Workflow, review?: (result: ReviewResult) => void): Promise<void> => {
+		if (ctx.mode !== "tui") {
+			review?.({ kind: "closed" });
+			return Promise.resolve();
+		}
+		if (workflowPopup && !review && workflowPopup.id === workflow.id) return Promise.resolve();
+		workflowPopup?.close();
+		const runner = host.workflows!;
+		const markdownTheme = getMarkdownTheme();
+		const shown = () => (runner.current?.id === workflow.id ? runner.current : workflow);
+		let restoreBackdrop: (() => void) | undefined;
+		let ticker: ReturnType<typeof setInterval> | undefined;
+		let decided = false;
+		return ctx.ui.custom<void>(
+			(tui, theme, _keybindings, done) => {
+				const close = () => {
+					if (ticker) clearInterval(ticker);
+					ticker = undefined;
+					restoreBackdrop?.();
+					restoreBackdrop = undefined;
+					if (workflowPopup?.close === close) workflowPopup = undefined;
+					if (review && !decided) {
+						decided = true;
+						review({ kind: "closed" });
+					}
+					done();
+				};
+				const decide = (result: ReviewResult) => {
+					decided = true;
+					review?.(result);
+					close();
+				};
+				const browser = new WorkflowBrowser({
+					theme,
+					workflow: shown,
+					apply: (change) => runner.apply(shown(), change),
+					markdown: (text, width) => new Markdown(text, 0, 0, markdownTheme).render(width),
+					rows: () => Math.floor(tui.terminal.rows * 0.9),
+					requestRender: () => tui.requestRender(),
+					approve: () => decide({ kind: "approved" }),
+					reject: (text) => decide({ kind: "feedback", text }),
+					pause: (paused) => runner.pause(shown(), paused),
+					close,
+				});
+				workflowPopup = { id: workflow.id, close };
+				restoreBackdrop = darkenBackdrop(tui, theme, UNFOLD_MS);
+				ticker = setInterval(() => {
+					if (shown().state !== "running") return;
+					browser.tick();
+					tui.requestRender();
+				}, SPINNER_MS * 2);
+				ticker.unref?.();
+				return {
+					render: (width: number) => browser.render(width),
+					invalidate: () => browser.invalidate(),
+					handleInput: (data: string) => browser.handleInput(data),
+					handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
+					dispose: () => {
+						if (ticker) clearInterval(ticker);
+						restoreBackdrop?.();
+					},
+				};
+			},
+			{ overlay: true, overlayOptions: POPUP_LAYOUT },
+		);
+	};
+	host.workflows = new WorkflowRunner({
+		store: new WorkflowStore(join(getAgentDir(), "workflows")),
+		onChange: showWorkflow,
+		review: (workflow) =>
+			oneAtATime(
+				() =>
+					new Promise<ReviewResult>((resolve) => {
+						const ctx = current;
+						if (!ctx?.hasUI || ctx.mode !== "tui") return resolve({ kind: "closed" });
+						void openWorkflow(ctx, workflow, resolve);
+					}),
+			),
+		ask: (questions, title) => {
+			const ctx = current;
+			if (!ctx?.hasUI) return Promise.resolve(undefined);
+			return oneAtATime(() => ask(ctx.ui as any, questions, title));
+		},
+		wake: (workflow, content) =>
+			pi.sendMessage(
+				{ customType: WORKFLOW_MESSAGE, content, display: true, details: { id: workflow.id, title: workflow.title } },
+				{ triggerTurn: true, deliverAs: "followUp" },
+			),
+	});
+	pi.registerMessageRenderer(WORKFLOW_MESSAGE, (message, _options, theme) => {
+		const details = message.details as { id: number; title: string } | undefined;
+		const head = theme.fg("accent", "◆ ") + theme.bold(details ? `Workflow #${details.id} ${details.title}` : "Workflow");
+		return new Text(`${head}\n${theme.fg("dim", String(message.content))}`, 0, 0);
+	});
+	pi.registerCommand("workflow", {
+		description: "Open the workflow's tree; with a task, have the agent plan it as a workflow of subagents",
+		handler: async (arg, ctx) => {
+			const task = arg?.trim();
+			const runner = host.workflows!;
+			if (task && !/^#?\d+$/.test(task)) {
+				pi.sendUserMessage(`Plan this as a workflow with workflow_plan (big parts, each split into small parts for subagents), and run it once I approve it: ${task}`);
+				return;
+			}
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("The workflow tree needs the interactive terminal UI", "warning");
+				return;
+			}
+			if (task) {
+				try {
+					void openWorkflow(ctx, runner.resolve(task));
+				} catch (error) {
+					ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+				}
+				return;
+			}
+			if (runner.current) {
+				void openWorkflow(ctx, runner.current);
+				return;
+			}
+			const saved = new WorkflowStore(join(getAgentDir(), "workflows")).list().filter((w) => w.cwd === ctx.cwd);
+			if (saved.length === 0) {
+				ctx.ui.notify("No workflow yet. Start one with /workflow <task>", "info");
+				return;
+			}
+			const labels = saved.map((w) => `#${w.id} ${w.title} · ${w.state} · ${new Date(w.updatedAt).toLocaleString()}`);
+			const choice = await ctx.ui.select("Open a workflow", labels);
+			const picked = choice === undefined ? undefined : saved[labels.indexOf(choice)];
+			if (picked) void openWorkflow(ctx, runner.resolve(picked.id));
+		},
+	});
+
 	const server = new BridgeServer(() => tools, { name: SERVER_NAME, version: "1.0.0" }, SERVER_INSTRUCTIONS);
 	server.hook = (payload, client) => agyHook(host, payload, client);
 	const proxy = new McpProxy(
@@ -431,6 +651,14 @@ export default function (pi: ExtensionAPI) {
 		stepsShown = false;
 		refreshSteps = undefined;
 		host.steps?.clear();
+		workflowShown = false;
+		refreshWorkflow = undefined;
+		workflowPopup = undefined;
+		if (host.workflows) {
+			host.workflows.current = undefined;
+			host.workflows.restore(ctx.cwd);
+			showWorkflow();
+		}
 		if (ctx.mode === "tui" && chatIsEmpty(ctx)) showWishes(ctx);
 		else hideWishes(ctx);
 		try {
@@ -448,6 +676,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		hideWishes(ctx);
 		host.steps?.clear();
+		workflowPopup?.close();
+		if (workflowLinger) clearTimeout(workflowLinger);
 		current = undefined;
 		host.watches?.stopAll();
 		proxy.clear();

@@ -18,6 +18,8 @@ import type { BridgeClient, BridgeTool, ToolResult } from "./server.ts";
 import { addWish, cut, readWishes, SHORT_MAX, setWishStatus, WISH_STATUSES, type Wish, type WishStatus } from "./wishes.ts";
 import { formatElapsed, MAX_TIMEOUT_MIN, DEFAULT_TIMEOUT_MIN, timeoutMsOf, type Watches } from "./watch.ts";
 import { MAX_STEPS, STEP_STATUSES, type Stepper, summary } from "./steps.ts";
+import { DEFAULT_PARALLEL, MAX_DEPTH, MAX_LEAVES, MAX_PARALLEL, PART_STATUSES } from "./workflow.ts";
+import type { WorkflowRunner } from "./workflow-runner.ts";
 
 export interface Host {
 	pi: ExtensionAPI;
@@ -33,6 +35,8 @@ export interface Host {
 	watches?: Watches;
 	/** The stepper an agent shows above the editor (steps.ts). */
 	steps?: Stepper;
+	/** Workflows: big tasks as a tree of parts done by subagents (workflow.ts). */
+	workflows?: WorkflowRunner;
 }
 
 export const wishesFileOf = (host: Host) => host.wishesFile ?? join(getAgentDir(), "wishes.md");
@@ -678,6 +682,98 @@ export function bridgeTools(host: Host): BridgeTool[] {
 			},
 		},
 		{
+			name: "workflow_plan",
+			description: `Plan a big task as a workflow and have the user review it before it runs. Use it when the user asks for a workflow, or by yourself when a task is big enough to split into many parts that subagents can each do on their own (e.g. a feature with several components, a migration across many files). Split the task into big parts and each big part into small parts (nested as deep as needed, up to ${MAX_DEPTH} levels); a small part (one without parts) is done by one subagent, so it must be self-contained and clear. Ids are positions: 1 is the first big part, 1.2 its second part. Use \`dependsOn\` for parts that need others done first (ids of any level; a dependency of a big part holds for all its parts); everything else may run in parallel. pi shows the plan as a tree; the user can edit, add and remove parts, choose the subagents' model, and approve it or send it back with feedback. The call waits for that. Approved, it tells you how to run it with workflow_next and workflow_update.`,
+			inputSchema: obj(
+				{
+					title: { type: "string", description: "The whole task in a few words in the user's language, e.g. 'Build the car model'." },
+					goal: { type: "string", description: "The task in the user's words, with what done means." },
+					model: { type: "string", description: "Default model for the subagents (e.g. haiku, sonnet, opus); unset is your own default." },
+					parallel: { type: "number", description: `Most subagents at once, 1–${MAX_PARALLEL}; default ${DEFAULT_PARALLEL}.` },
+					parts: {
+						type: "array",
+						minItems: 1,
+						description: `The big parts in order, each with its parts; at most ${MAX_LEAVES} small parts in all.`,
+						items: {
+							type: "object",
+							properties: {
+								title: { type: "string", description: "The part in a few words in the user's language." },
+								detail: { type: "string", description: "What exactly to do, for the subagent (small parts) or what the big part is about." },
+								model: { type: "string", description: "Model for this part's subagents, if not the default." },
+								dependsOn: { type: "array", items: { type: "string" }, description: "Ids of parts that must be done first, e.g. ['1', '2.3']." },
+								parts: { type: "array", description: "Its parts, same shape; none for a small part.", items: { type: "object" } },
+							},
+							required: ["title"],
+						},
+					},
+				},
+				["title", "parts"],
+			),
+			annotations: WRITE,
+			async call(args, client) {
+				if (!host.workflows) return text("Workflows are not available.", true);
+				try {
+					return text(await host.workflows.plan(args, ((client.data ?? {}) as ClientData).cwd ?? process.cwd()));
+				} catch (error) {
+					return text(error instanceof Error ? error.message : String(error), true);
+				}
+			},
+		},
+		{
+			name: "workflow_next",
+			description:
+				"Get the small parts of the approved workflow that can start now (pi marks them running) with what each subagent needs to know: its task, where it fits in, the results it builds on, the description and model for the subagent. Also tells you what the user changed meanwhile (edited, added, cancelled or restarted parts, paused), when to wait for running subagents, and when the workflow is finished. Call it after approval and after every workflow_update.",
+			inputSchema: obj({ workflow: { type: "number", description: "The workflow's number; default the current one." } }),
+			annotations: WRITE,
+			async call(args) {
+				if (!host.workflows) return text("Workflows are not available.", true);
+				try {
+					return text(host.workflows.next(args.workflow));
+				} catch (error) {
+					return text(error instanceof Error ? error.message : String(error), true);
+				}
+			},
+		},
+		{
+			name: "workflow_update",
+			description:
+				"Report how a small part of the workflow ended once its subagent is done: status done or failed, its short summary as result and the tokens it used. pi hands a part that failed out once more; failing again, it asks the user. Status pending hands a part out again (e.g. its subagent was lost); running and skipped are also allowed.",
+			inputSchema: obj(
+				{
+					workflow: { type: "number", description: "The workflow's number; default the current one." },
+					id: { type: "string", description: "The part's id, e.g. '1.2'." },
+					status: { type: "string", enum: [...PART_STATUSES] },
+					result: { type: "string", description: "What the subagent did or found, in a few sentences; for failed, why." },
+					tokens: { type: "number", description: "Total tokens the subagent used (from its usage), if known." },
+					note: { type: "string", description: "Short note shown with the part; empty to remove it." },
+				},
+				["id", "status"],
+			),
+			annotations: WRITE,
+			async call(args) {
+				if (!host.workflows) return text("Workflows are not available.", true);
+				try {
+					return text(host.workflows.update(args));
+				} catch (error) {
+					return text(error instanceof Error ? error.message : String(error), true);
+				}
+			},
+		},
+		{
+			name: "workflow_status",
+			description: "Read a workflow as a tree: every part with its id, status, dependencies, model, tokens and result. With list: the workflows saved for this folder (to continue one, call workflow_next with its number).",
+			inputSchema: obj({ workflow: { type: "number", description: "The workflow's number; default the current one." }, list: { type: "boolean" } }),
+			annotations: READ,
+			async call(args, client) {
+				if (!host.workflows) return text("Workflows are not available.", true);
+				try {
+					return text(host.workflows.status(args, ((client.data ?? {}) as ClientData).cwd ?? process.cwd()));
+				} catch (error) {
+					return text(error instanceof Error ? error.message : String(error), true);
+				}
+			},
+		},
+		{
 			name: "notify",
 			description: "Show a short notification in pi (e.g. when a long task is done).",
 			inputSchema: obj({ message: { type: "string" }, type: { type: "string", enum: ["info", "warning", "error"] } }, ["message"]),
@@ -697,4 +793,5 @@ export const SERVER_INSTRUCTIONS = `pi is the terminal chat app the user talks t
 - \`wishes\` reads pi's wish list; when you start working on one of its wishes, set it \`in progress\` with \`wish_update\`, and \`done\` when it is finished.
 - To wait for something outside that takes a while (a CI run, a deployment, a PR's checks), start a \`watch\` and end your turn: pi runs the command and starts a new turn with its result. Prefer it to background shell commands and sleep loops, which can be ended between turns.
 - For a job of several steps that takes a while (e.g. build, install and start an app), show them as a stepper with \`steps_set\` and move each on with \`steps_update\` as you go, so the user sees where you are.
+- For a big task that splits into many parts subagents can each do on their own, or when the user asks for a workflow, plan it with \`workflow_plan\`: the user reviews the tree of parts, then you run it with \`workflow_next\` and \`workflow_update\`, doing each small part in a subagent.
 - \`status\`, \`settings\`, \`themes\`, \`keybindings\`, \`commands\`, \`tools\`, \`mcp_servers\` and \`docs\` read pi's state; the set_* tools change it after asking the user.`;

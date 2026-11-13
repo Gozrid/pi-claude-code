@@ -8,7 +8,7 @@ Extensions for [pi](https://pi.dev) in one package:
 - **usage-graph** – `/usage` charts the plan usage limits of every connected account (all Claude CLI and Antigravity instances) and the tokens of every model over time
 - **task-list** – the task list a CLI agent keeps, above the editor while it works on it
 - **subagents** – the subagents a CLI agent runs, above the editor while they work; a click or `/subagents` opens a popup with every subagent of the session in a box and the selected one's output live
-- **pi-bridge** – pi's own MCP server for the CLI agents: Claude and agy ask pi before what their mode does not allow and wait for your answer, the agents ask you questions in a dialog with options and a field for your own answer, hand wishes to change pi over to you and keep a wish list (its open wishes stand at the bottom right of the empty chat; a click on them or `/wishes` opens a popup with the whole list and each wish in full), read pi's state and settings and change them after asking, and wait for things outside that take a while (a CI run, a deployment): pi runs the command itself, shows it above the editor and starts a new turn with the result when it ends (`/watches` stops one), and show a stepper above the editor for a job of several steps (build → install → start …) that they move on live as they work; pi's MCP servers reach the agents through pi's own connections instead of being started twice
+- **pi-bridge** – pi's own MCP server for the CLI agents: Claude and agy ask pi before what their mode does not allow and wait for your answer, the agents ask you questions in a dialog with options and a field for your own answer, hand wishes to change pi over to you and keep a wish list (its open wishes stand at the bottom right of the empty chat; a click on them or `/wishes` opens a popup with the whole list and each wish in full), read pi's state and settings and change them after asking, and wait for things outside that take a while (a CI run, a deployment): pi runs the command itself, shows it above the editor and starts a new turn with the result when it ends (`/watches` stops one), and show a stepper above the editor for a job of several steps (build → install → start …) that they move on live as they work, and run a big task as a workflow: they plan it as a tree of parts you review and edit, then do it part by part in subagents while the progress stands above the editor (`/workflow` opens the tree); pi's MCP servers reach the agents through pi's own connections instead of being started twice
 - **permission-retry** – when a CLI agent was not allowed to do something, asks how to allow it and retries
 - **provider-logo** – shows the logo of the selected model's provider in the middle of the empty chat
 - **chat-crab** – a tiny Clawd (Gravi for Antigravity) above the editor that acts out what the agent is doing
@@ -347,9 +347,36 @@ Install the app · Step 2 of 4
 
 Done steps get a green `✓`, the running one a spinner and its time, failed ones a red `✗` with their note, skipped ones `↷`, pending ones stay grey. When the row does not fit the width, the steps stand below each other. A finished list (`4 of 4 done`, or `Step 3 of 4 failed`) goes away by itself after 10 seconds; the agent can remove it earlier with `steps_clear`, you with `/steps`. A new `steps_set` replaces the list; it belongs to the pi session.
 
+**Workflows** (`workflow_plan`, `workflow_next`, `workflow_update`, `workflow_status`): a big task planned as a tree – the whole task, big parts, and below each big part small parts, as deep as needed – where every small part is done by a subagent of its own. The agent plans one when you ask for it (`/workflow <task>` asks for you) or proposes one by itself when a task is big enough. The plan opens as a tree for your review, before anything runs:
+
+```
+╭─ Review the plan · Workflow #3 · Build a car model ───────────────────────────────╮
+│ review · 0 of 7 done · subagents: default model · 3 at once                       │
+│                                                                                   │
+│ ▾ ○ 1 Wheels 0/2              │ 1.1 Screws                                        │
+│   ○ 1.1 Screws                │ pending · model haiku                             │
+│   ○ 1.2 Rubber                │ within 1 Wheels                                   │
+│ ▾ ○ 2 Body 0/2                │                                                   │
+│   ○ 2.1 Frame                 │ Task                                              │
+│   ○ 2.2 Doors                 │ M6 screws for the four wheels                     │
+╰─ a approve · f feedback · ↑↓ select · ←→ fold · e title · d task · n new · … ─────╯
+```
+
+There you edit titles (`e`) and tasks (`d`), add parts next to (`n`) or inside (`i`) the selected one, remove parts (`x`), choose the model of a part's subagents (`m`: default, haiku, sonnet, opus) or of all (`M`) and how many run at once (`+`/`-`), then approve (`a`) or send the plan back with what to change (`f`); the agent gets the plan with your edits. Ids are positions (`1.2` is the second part of the first part) and stay as they are when parts are added or removed. Parts can depend on others (`after 1`); a big part's dependencies hold for all its parts, everything else may run in parallel.
+
+Once approved, pi hands the agent the small parts that can start (`workflow_next`, up to the number at once), the agent starts a subagent for each and reports how it ended with its summary and tokens (`workflow_update`). A part that fails is handed out once more; failing again, pi asks you: try again (with a hint for the next try), skip it, or pause the workflow – the other parts go on meanwhile. Above the editor stand the workflow's progress, its big parts and the small parts running:
+
+```
+◆ Workflow #3 Build a car model · 12 of 30 done · 3 running · 245.1k tokens · click for the tree
+✓ 1 Wheels 5/5 ── ⠹ 2 Body 3/8 ── ○ 3 Windows 0/6
+  ⠹ 2.4 Doors · ⠹ 2.5 Roof · ⠹ 2.6 Bonnet
+```
+
+A click on it, or `/workflow`, opens the tree with the selected part's task, model, tokens, time and result. While it runs you can pause and continue it (`p`), cancel a part (`c`, the agent is told to stop its subagents), start a part again (`r`), and edit, add and remove parts as in the review; the agent learns what you changed with its next call, and when it had already ended its turn (finished, paused, waiting for you), continuing or freeing parts again sends it a message that starts a turn. Every workflow is saved in `~/.pi/agent/workflows/<number>.json`: after pi starts again, the newest unfinished one of the folder shows paused, and continuing it (`p`) lets the agent go on (parts that were running are checked again). `/workflow <number>` opens an older one; `/workflow` without a current one lists them.
+
 **Read**: `wishes`, `status` (version, model, thinking level, session, context, theme), `settings`, `themes`, `keybindings`, `commands`, `tools`, `mcp_servers` (headers and env values hidden), `docs` (list, search or read pi's documentation of the installed version).
 
-**Change**, each after a confirmation: `set_theme`, `set_setting` (through pi's own settings manager), `set_keybinding`, `set_model`, `set_thinking_level`, `set_mode` (the CLI's mode, as Shift+Tab), `mcp_server_set` (add, replace or remove in `~/.pi/agent/mcp.json`). Without asking: `wish_update`, `rename_session`, `notify`, `watch`, `watch_stop`, `steps_set`, `steps_update`, `steps_clear`.
+**Change**, each after a confirmation: `set_theme`, `set_setting` (through pi's own settings manager), `set_keybinding`, `set_model`, `set_thinking_level`, `set_mode` (the CLI's mode, as Shift+Tab), `mcp_server_set` (add, replace or remove in `~/.pi/agent/mcp.json`). Without asking: `wish_update`, `rename_session`, `notify`, `watch`, `watch_stop`, `steps_set`, `steps_update`, `steps_clear`, `workflow_next`, `workflow_update`; `workflow_plan` waits for your review, `workflow_status` reads.
 
 ## agent-status-line
 
@@ -815,6 +842,9 @@ Layout:
 | `extensions/pi-bridge/tools.ts` | the tools: ask, permission, change_request, wishes, watches, steps, reading and changing pi |
 | `extensions/pi-bridge/watch.ts` | watches: commands pi runs while an agent waits, time limit, stop, the message with the result |
 | `extensions/pi-bridge/steps.ts` | steps: the stepper an agent shows above the editor, statuses, going away when finished, its lines |
+| `extensions/pi-bridge/workflow.ts` | workflows: the tree of parts, dependencies, the parts to start, failures, the user's edits, saving |
+| `extensions/pi-bridge/workflow-runner.ts` | runs workflows for the tools: review, the texts for the agent, asking about failed parts, waking the agent |
+| `extensions/pi-bridge/workflow-view.ts` | workflow lines above the editor and the popup with the tree (review and while it runs) |
 | `extensions/pi-bridge/wishes.ts` | wish list: Markdown file, status, rows for the empty chat and the wish each opens |
 | `extensions/pi-bridge/wish-popup.ts` | wish popup (`/wishes`): list and preview, filter, search, status, work on it |
 | `extensions/pi-bridge/ask.ts` | question dialog: options, own answer, extra input field, several questions |
