@@ -26,7 +26,7 @@ import {
 	WorkflowStore,
 } from "../extensions/pi-bridge/workflow.ts";
 import { RETRY, type ReviewResult, SKIP, WorkflowRunner } from "../extensions/pi-bridge/workflow-runner.ts";
-import { typedText, WorkflowBrowser, workflowLines, type WorkflowColors } from "../extensions/pi-bridge/workflow-view.ts";
+import { canvasLayout, typedText, WorkflowBrowser, workflowLines, type WorkflowColors } from "../extensions/pi-bridge/workflow-view.ts";
 
 const CAR = {
 	title: "Build a car model",
@@ -299,8 +299,8 @@ test("the popup: review the plan, edit a title, add a part, choose a model and a
 	const b = browser(w, { approve: () => (approved = true) });
 	const screen = plain(b.render(100));
 	assert.match(screen[0], /Review the plan · Workflow #1 · Build a car model/);
-	assert.ok(screen.some((l) => l.includes("▾ ○ 1 Wheels 0/2")));
-	assert.ok(screen.some((l) => l.includes("1.1 Screws") && l.includes("M6 screws")) || screen.some((l) => l.includes("M6 screws")));
+	assert.ok(screen.some((l) => /◆ Build a car model ─┬─ ○ 1 Wheels ─+┬─ ○ 1\.1 Screws/.test(l)));
+	assert.ok(screen.some((l) => l.includes("M6 screws")));
 	assert.match(screen.at(-1)!, /a approve · f feedback/);
 	// 1.1 is selected first: rename it.
 	b.handleInput("e");
@@ -336,6 +336,58 @@ test("the popup while it runs: pause, cancel and restart the selected part", () 
 	b.handleInput("x");
 	assert.match(plain(b.render(100))[1], /has started; cancel it instead/);
 	for (const line of b.render(60)) assert.ok(visibleWidth(line) <= 60, line);
+});
+
+test("the canvas: the tree left to right, each part a box with its title, joined by lines", () => {
+	const w = build();
+	const canvas = canvasLayout(w, new Set(["3"]));
+	const at = (id: string) => canvas.nodes.find((n) => n.part.id === id)!;
+	assert.deepEqual([at("1").row, at("1.1").row, at("1.2").row, at("2").row, at("2.2").row, at("3").row], [0, 0, 1, 2, 3, 4]);
+	assert.equal(at("1.1").x, at("2.1").x);
+	assert.ok(at("1.1").x > at("1").x + at("1").width);
+	assert.ok(at("3").folded);
+	assert.equal(canvas.nodes.some((n) => n.part.id === "3.1"), false);
+	assert.equal(canvas.height, 5);
+	const long = build({ title: "T", parts: [{ title: "A very long title that does not fit into one box at all" }] });
+	assert.ok(canvasLayout(long, new Set()).nodes[0].label.replace(/\x1b\[[0-9;]*m/g, "").endsWith("…"));
+});
+
+test("the canvas popup: arrows move between parts, shift+arrows and dragging move the canvas, a click selects", () => {
+	const w = build({ title: "Wide", parts: [{ title: "Alpha part with a long title", parts: [{ title: "Beta part with a long title", parts: [{ title: "Gamma part with a long title" }] }] }, { title: "Delta" }] });
+	const b = browser(w);
+	const selected = () => plain(b.render(60)).find((l) => l.includes("pending · "))!;
+	let screen = plain(b.render(60));
+	// Narrow: the canvas only; the deepest part is selected and brought into view.
+	assert.ok(screen.some((l) => l.includes("1.1.1 Gamma")));
+	assert.match(screen[1], /more ←/);
+	b.handleInput("\x1b[D"); // ← to the parent
+	b.handleInput("\x1b[D");
+	b.handleInput("\x1b[B"); // ↓ to the next part of the same depth
+	b.handleInput("\r");
+	assert.match(selected(), /pending/);
+	assert.ok(plain(b.render(60)).some((l) => l.startsWith("│ 2 Delta")));
+	b.handleInput("\x1b");
+	// Pan with shift+arrows: the root comes into view, then leaves it again.
+	for (let i = 0; i < 10; i++) b.handleInput("\x1b[1;2D");
+	assert.ok(plain(b.render(60)).some((l) => l.includes("◆ Wide")));
+	b.handleInput("\x1b[1;2C");
+	assert.ok(!plain(b.render(60)).some((l) => l.includes("◆ Wide")));
+	// Drag back to the left edge.
+	const mouse = (type: string, x: number, y: number, extra = {}) =>
+		b.handleMouse({ type, button: "left", x, y, screenX: x, screenY: y, width: 60, height: 20, shift: false, alt: false, ctrl: false, ...extra } as any);
+	assert.deepEqual(mouse("press", 10, 4), { capture: true, render: false });
+	mouse("drag", 40, 4);
+	mouse("release", 40, 4);
+	screen = plain(b.render(60));
+	assert.ok(screen.some((l) => l.includes("◆ Wide")));
+	// A click on a box selects it and, narrow, shows its details.
+	const row = screen.findIndex((l) => l.includes("1 Alpha"));
+	const column = screen[row].indexOf("1 Alpha");
+	mouse("click", column, row, { clickCount: 1 });
+	assert.ok(plain(b.render(60)).some((l) => l.includes("1 Alpha part with a long title")));
+	assert.ok(plain(b.render(60)).some((l) => l.includes("pending · 0 of 1 done")));
+	for (const line of b.render(60)) assert.ok(visibleWidth(line) <= 60, line);
+	for (const line of b.render(100)) assert.ok(visibleWidth(line) <= 100, line);
 });
 
 test("typed text: paste markers dropped, line breaks as spaces, other keys nothing", () => {

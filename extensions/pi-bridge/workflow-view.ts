@@ -9,16 +9,18 @@
  *   ✓ 1 Wheels 5/5 ── ⠹ 2 Body 3/8 ── ○ 3 Windows 0/6
  *     ⠹ 2.4 Doors · ⠹ 2.5 Roof · ⠹ 2.6 Bonnet
  *
- * The popup (WorkflowBrowser):
+ * The popup (WorkflowBrowser): the tree on a canvas, left to right, every
+ * part a box with its mark and title only; the selected part's details beside
+ * it. Arrows move between the parts and the canvas follows; shift+arrows, the
+ * wheel (shift+wheel sideways) and dragging move the canvas itself.
  *
- *   ╭─ Workflow #3 · Build a car model ───────────────────────────────╮
- *   │ running · 12 of 30 done · 3 running · 245.1k tokens · 3 at once │
- *   │                                                                  │
- *   │ ▾ ✓ 1 Wheels 5/5          │ 2.4 Doors                            │
- *   │ ▾ ⠹ 2 Body 3/8            │ running · model sonnet · 1m 12s      │
- *   │   ✓ 2.1 Frame             │ within 2 Body                        │
- *   │ › ⠹ 2.4 Doors             │ …result as Markdown                  │
- *   ╰─ ↑↓ select · ←→ fold · e edit · n new · p pause · esc close ────╯
+ *   ╭─ Workflow #3 · Build a car model ──────────────────────────────────────────╮
+ *   │ running · 12 of 30 done · 3 running · 245.1k tokens · 3 at once · more →↓  │
+ *   │                                                                            │
+ *   │ ◆ Build a car model ─┬─ ✓ 1 Wheels ▸            │ 2.2 Doors                │
+ *   │                      └─ ⠹ 2 Body ───┬─ ✓ 2.1 Fr │ running · model sonnet   │
+ *   │                                     └─ ⠹ 2.2 Do │ within 2 Body            │
+ *   ╰─ ↑↓←→ select · space fold · shift+↑↓←→ or drag pan · e title · … ─────────╯
  *
  * In review the keys approve (a) or send the plan back with feedback (f);
  * while it runs they pause and continue (p), cancel (c) and restart (r)
@@ -28,7 +30,7 @@
  * run at once (+/-).
  */
 
-import { Key, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Key, matchesKey, sliceByColumn, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatElapsed, formatTokens } from "../shared/format.ts";
 import { SPINNER } from "./steps.ts";
 import {
@@ -147,9 +149,103 @@ export interface WorkflowBrowserOptions {
 	close(): void;
 }
 
-interface Row {
+/** A part on the canvas: the row it stands in, its first column and width. */
+export interface CanvasNode {
 	part: Part;
 	depth: number;
+	row: number;
+	x: number;
+	width: number;
+	/** Its title, shortened to fit a box. */
+	label: string;
+	/** A big part whose parts are hidden. */
+	folded: boolean;
+}
+
+/** The lines and the root's title drawn between the parts. */
+interface CanvasPiece {
+	x: number;
+	text: string;
+	kind: "edge" | "root";
+}
+
+/** The whole tree laid out left to right: the workflow, its big parts to the right of it, their parts further right. */
+export interface Canvas {
+	nodes: CanvasNode[];
+	pieces: CanvasPiece[][];
+	width: number;
+	height: number;
+}
+
+/** Widest a part's box gets, its mark included; longer titles end in "…". */
+export const LABEL_MAX = 34;
+/** Columns from the widest box of one depth to the boxes of the next: " ─┬─ ". */
+const GAP = 5;
+
+/**
+ * Lays the tree out on a canvas, left to right. A part stands in the row of
+ * its first part; its parts follow one below the other, joined to it by a
+ * line. Every depth gets a column as wide as its widest box.
+ *
+ *   ◆ Build a car ─┬─ ○ 1 Wheels ─┬─ ○ 1.1 Screws
+ *                  │              └─ ○ 1.2 Rubber
+ *                  └─ ○ 2 Body ▸
+ */
+export function canvasLayout(workflow: Workflow, folded: ReadonlySet<string>): Canvas {
+	interface Box {
+		part?: Part;
+		depth: number;
+		label: string;
+		width: number;
+		folded: boolean;
+		kids: Box[];
+	}
+	const box = (part: Part, depth: number): Box => {
+		const isFolded = part.parts.length > 0 && folded.has(part.id);
+		const label = truncateToWidth(`${part.id} ${part.title}`, LABEL_MAX - 2 - (isFolded ? 2 : 0), "…");
+		const kids = isFolded ? [] : part.parts.map((p) => box(p, depth + 1));
+		return { part, depth, label, width: 2 + visibleWidth(label) + (isFolded ? 2 : 0), folded: isFolded, kids };
+	};
+	const rootLabel = truncateToWidth(`◆ ${workflow.title}`, LABEL_MAX, "…");
+	const root: Box = { depth: 0, label: rootLabel, width: visibleWidth(rootLabel), folded: false, kids: workflow.parts.map((p) => box(p, 1)) };
+	const columnWidth: number[] = [];
+	const measure = (b: Box) => {
+		columnWidth[b.depth] = Math.max(columnWidth[b.depth] ?? 0, b.width);
+		b.kids.forEach(measure);
+	};
+	measure(root);
+	const columnX = [0];
+	for (let d = 1; d < columnWidth.length; d++) columnX[d] = columnX[d - 1] + columnWidth[d - 1] + GAP;
+	const nodes: CanvasNode[] = [];
+	const pieces: CanvasPiece[][] = [];
+	const put = (row: number, piece: CanvasPiece) => (pieces[row] ??= []).push(piece);
+	/** Places a box and its parts from `row` on; returns the rows they take. */
+	const place = (b: Box, row: number): number => {
+		const x = columnX[b.depth];
+		if (b.part) nodes.push({ part: b.part, depth: b.depth, row, x, width: b.width, label: b.label, folded: b.folded });
+		else put(row, { x, text: b.label, kind: "root" });
+		if (b.kids.length === 0) return 1;
+		const joint = x + columnWidth[b.depth] + 2;
+		put(row, { x: x + b.width, text: ` ${"─".repeat(joint - x - b.width - 1)}`, kind: "edge" });
+		const kidRows: number[] = [];
+		let next = row;
+		for (const kid of b.kids) {
+			kidRows.push(next);
+			next += place(kid, next);
+		}
+		const last = kidRows[kidRows.length - 1];
+		for (let r = row; r <= last; r++) {
+			const at = kidRows.indexOf(r);
+			if (at < 0) put(r, { x: joint, text: "│", kind: "edge" });
+			else put(r, { x: joint, text: `${b.kids.length === 1 ? "─" : at === 0 ? "┬" : r === last ? "└" : "├"}─ `, kind: "edge" });
+		}
+		return next - row;
+	};
+	const height = place(root, 0);
+	let width = 0;
+	for (const n of nodes) width = Math.max(width, n.x + n.width);
+	for (const row of pieces) for (const p of row ?? []) width = Math.max(width, p.x + visibleWidth(p.text));
+	return { nodes, pieces, width, height };
 }
 
 interface Prompt {
@@ -158,20 +254,31 @@ interface Prompt {
 	apply(value: string): void;
 }
 
-/** Columns between the tree and the details: " │ ". */
+/** Columns between the canvas and the details: " │ ". */
 const DIVIDER = 3;
-/** Below this inner width the popup shows the tree only; enter shows the details. */
+/** Below this inner width the popup shows the canvas only; enter shows the details. */
 export const NARROW = 70;
+/** Columns the details keep at least beside the canvas. */
+const DETAIL_MIN = 30;
+/** Columns and rows shift+arrows move the canvas. */
+const PAN_X = 8;
+const PAN_Y = 2;
 
 export class WorkflowBrowser {
 	private selectedId: string | undefined;
 	private folded = new Set<string>();
-	private treeTop = 0;
+	/** The canvas column and row at the top left of the view. */
+	private view = { x: 0, y: 0 };
+	/** Bring the selected part into view at the next render. */
+	private follow = true;
+	/** A drag on the canvas: where it started, on screen and on the canvas. */
+	private drag: { screenX: number; screenY: number; x: number; y: number } | undefined;
+	private canvas: Canvas = { nodes: [], pieces: [], width: 0, height: 0 };
 	private detailTop = 0;
 	private prompt: Prompt | undefined;
 	private message: { text: string; error: boolean } | undefined;
 	private frame = 0;
-	/** Narrow mode: showing the details instead of the tree. */
+	/** Narrow mode: showing the details instead of the canvas. */
 	private detail = false;
 	private layout = { bodyTop: 3, bodyRows: 0, treeWidth: 0, narrow: false };
 	private readonly o: WorkflowBrowserOptions;
@@ -194,40 +301,43 @@ export class WorkflowBrowser {
 		this.frame++;
 	}
 
-	private rows(): Row[] {
-		const rows: Row[] = [];
-		const walk = (parts: Part[], depth: number) => {
-			for (const part of parts) {
-				rows.push({ part, depth });
-				if (!this.folded.has(part.id)) walk(part.parts, depth + 1);
-			}
-		};
-		walk(this.o.workflow().parts, 0);
-		return rows;
+	private nodes(): CanvasNode[] {
+		this.canvas = canvasLayout(this.o.workflow(), this.folded);
+		return this.canvas.nodes;
 	}
 
-	private current(rows = this.rows()): Row | undefined {
-		const found = rows.find((r) => r.part.id === this.selectedId);
+	private current(nodes = this.nodes()): CanvasNode | undefined {
+		const found = nodes.find((n) => n.part.id === this.selectedId);
 		if (found) return found;
-		// A removed or folded part: its closest visible parent, else the first row.
+		// A removed or folded part: its closest visible parent, else the first part.
 		const trail = this.selectedId?.split(".") ?? [];
 		while (trail.length) {
 			trail.pop();
-			const parent = rows.find((r) => r.part.id === trail.join("."));
+			const parent = nodes.find((n) => n.part.id === trail.join("."));
 			if (parent) return parent;
 		}
-		return rows[0];
+		return nodes[0];
 	}
 
 	private select(part: Part | undefined): void {
 		if (part?.id !== this.selectedId) this.detailTop = 0;
 		this.selectedId = part?.id;
+		this.follow = true;
 	}
 
-	private move(by: number): void {
-		const rows = this.rows();
-		const at = Math.max(0, rows.indexOf(this.current(rows)!));
-		this.select(rows[Math.max(0, Math.min(rows.length - 1, at + by))]?.part);
+	/** Up or down to the closest part of the same depth, else of the closest depth. */
+	private moveVertically(by: -1 | 1): void {
+		const nodes = this.nodes();
+		const at = this.current(nodes);
+		if (!at) return;
+		const ahead = nodes.filter((n) => (n.row - at.row) * by > 0);
+		ahead.sort((a, b) => Math.abs(a.depth - at.depth) - Math.abs(b.depth - at.depth) || Math.abs(a.row - at.row) - Math.abs(b.row - at.row));
+		if (ahead[0]) this.select(ahead[0].part);
+	}
+
+	private moveTo(end: "first" | "last"): void {
+		const nodes = this.nodes();
+		this.select((end === "first" ? nodes[0] : nodes[nodes.length - 1])?.part);
 	}
 
 	private toggle(part: Part, open?: boolean): void {
@@ -235,6 +345,20 @@ export class WorkflowBrowser {
 		const fold = open === undefined ? !this.folded.has(part.id) : !open;
 		if (fold) this.folded.add(part.id);
 		else this.folded.delete(part.id);
+		this.follow = true;
+	}
+
+	private pan(dx: number, dy: number): void {
+		this.view = this.clampView(this.view.x + dx, this.view.y + dy);
+		this.follow = false;
+	}
+
+	private clampView(x: number, y: number): { x: number; y: number } {
+		const { treeWidth, bodyRows } = this.layout;
+		return {
+			x: Math.max(0, Math.min(x, this.canvas.width - treeWidth)),
+			y: Math.max(0, Math.min(y, this.canvas.height - bodyRows)),
+		};
 	}
 
 	// -------------------------------------------------------------------------
@@ -251,54 +375,84 @@ export class WorkflowBrowser {
 		const inner = Math.max(10, width - 4);
 		const narrow = inner < NARROW;
 		const bodyRows = this.height() - 2 - 2;
-		const rows = this.rows();
-		const row = this.current(rows);
-		this.selectedId = row?.part.id;
-		const treeWidth = narrow ? inner : Math.min(60, Math.max(28, Math.floor(inner * 0.45)));
+		const nodes = this.nodes();
+		const node = this.current(nodes);
+		this.selectedId = node?.part.id;
+		// The canvas as wide as the tree needs, the details keeping at least DETAIL_MIN.
+		const treeWidth = narrow ? inner : Math.max(24, Math.min(this.canvas.width, inner - DIVIDER - DETAIL_MIN));
 		const detailWidth = narrow ? inner : inner - treeWidth - DIVIDER;
-		const tree = narrow && this.detail ? [] : this.treeLines(rows, row, treeWidth, bodyRows);
-		const details = narrow && !this.detail ? [] : this.detailLines(workflow, row?.part, detailWidth, bodyRows);
-		const lines = [this.headLine(workflow, inner), ""];
+		this.layout = { bodyTop: 3, bodyRows, treeWidth, narrow };
+		const tree = narrow && this.detail ? [] : this.canvasLines(node, treeWidth, bodyRows);
+		const details = narrow && !this.detail ? [] : this.detailLines(workflow, node?.part, detailWidth, bodyRows);
+		const lines = [this.headLine(workflow, inner, narrow && this.detail ? "" : this.more(treeWidth, bodyRows)), ""];
 		for (let r = 0; r < bodyRows; r++) {
 			if (narrow) lines.push(this.detail ? details[r] ?? "" : tree[r] ?? "");
 			else lines.push(`${pad(tree[r] ?? "", treeWidth)}${t.fg("borderMuted", " │ ")}${details[r] ?? ""}`);
 		}
-		this.layout = { bodyTop: 3, bodyRows, treeWidth, narrow };
 		const title = `${this.review ? "Review the plan · " : ""}Workflow #${workflow.id} · ${workflow.title}`;
 		return frame(t, width, t.bold(title), this.hint(narrow), lines.map((l) => pad(l, inner)));
 	}
 
-	private headLine(workflow: Workflow, inner: number): string {
+	/** Arrows to where more of the tree lies beyond the view, e.g. "→↓". */
+	private more(width: number, height: number): string {
+		const { x, y } = this.view;
+		return `${x > 0 ? "←" : ""}${x + width < this.canvas.width ? "→" : ""}${y > 0 ? "↑" : ""}${y + height < this.canvas.height ? "↓" : ""}`;
+	}
+
+	private headLine(workflow: Workflow, inner: number, more = ""): string {
 		const t = this.o.theme;
 		if (this.prompt) return truncateToWidth(`${t.fg("accent", `${this.prompt.label}: `)}${this.prompt.value}${t.fg("accent", "▏")}`, inner);
 		if (this.message) return truncateToWidth(t.fg(this.message.error ? "error" : "success", this.message.text), inner);
-		const bits = [t.fg(STATE_COLOR[workflow.state], workflow.state), t.fg("muted", progressLine(workflow))];
-		bits.push(t.fg("dim", `subagents: ${workflow.model ?? "default model"} · ${workflow.parallel} at once`));
+		const bits = [t.fg(STATE_COLOR[workflow.state], workflow.state)];
+		if (more) bits.push(t.fg("accent", `more ${more}`));
+		bits.push(t.fg("muted", progressLine(workflow)), t.fg("dim", `subagents: ${workflow.model ?? "default model"} · ${workflow.parallel} at once`));
 		return truncateToWidth(bits.join(t.fg("dim", " · ")), inner);
 	}
 
-	private treeLines(rows: Row[], row: Row | undefined, width: number, height: number): string[] {
+	/** The part of the canvas in view, the selected part brought into view first if it moved. */
+	private canvasLines(node: CanvasNode | undefined, width: number, height: number): string[] {
 		const t = this.o.theme;
-		const at = row ? rows.indexOf(row) : 0;
-		this.treeTop = Math.max(0, Math.min(this.treeTop, rows.length - height));
-		if (at < this.treeTop) this.treeTop = at;
-		if (at >= this.treeTop + height) this.treeTop = at - height + 1;
-		return rows.slice(this.treeTop, this.treeTop + height).map(({ part, depth }) => {
-			const selected = part.id === row?.part.id;
-			const status = statusOf(part);
-			const fold = part.parts.length ? (this.folded.has(part.id) ? "▸ " : "▾ ") : "  ";
-			const p = part.parts.length ? progressOf(part) : undefined;
-			const count = p ? t.fg("dim", ` ${p.done}/${p.total}`) : "";
-			const tokens = !p && part.tokens ? t.fg("dim", ` ${formatTokens(part.tokens)}`) : "";
-			const name = `${part.id} ${part.title}`;
-			const label = selected
-				? t.bold(t.fg("accent", name))
-				: status === "skipped"
-					? t.fg("dim", t.strikethrough(name))
-					: t.fg(status === "pending" ? "text" : status === "failed" ? "error" : "muted", name);
-			const line = truncateToWidth(`${"  ".repeat(depth)}${t.fg("dim", fold)}${mark(t, status, this.frame)} ${label}${count}${tokens}`, width);
-			return selected ? t.bg("selectedBg", pad(line, width)) : line;
-		});
+		let { x, y } = this.view;
+		if (this.follow && node) {
+			if (node.x + node.width > x + width) x = node.x + node.width - width;
+			if (node.x < x) x = Math.max(0, node.x - 2);
+			if (node.row < y) y = node.row;
+			if (node.row >= y + height) y = node.row - height + 1;
+		}
+		this.follow = false;
+		this.view = this.clampView(x, y);
+		const byRow = new Map<number, CanvasNode[]>();
+		for (const n of this.canvas.nodes) byRow.set(n.row, [...(byRow.get(n.row) ?? []), n]);
+		const out: string[] = [];
+		for (let r = this.view.y; r < Math.min(this.canvas.height, this.view.y + height); r++) {
+			const pieces: { x: number; text: string }[] = (this.canvas.pieces[r] ?? []).map((p) => ({
+				x: p.x,
+				text: p.kind === "root" ? t.bold(t.fg("accent", p.text)) : t.fg("dim", p.text),
+			}));
+			for (const n of byRow.get(r) ?? []) pieces.push({ x: n.x, text: this.nodeText(n, n.part.id === node?.part.id) });
+			pieces.sort((a, b) => a.x - b.x);
+			let line = "";
+			let column = 0;
+			for (const p of pieces) {
+				line += " ".repeat(Math.max(0, p.x - column)) + p.text;
+				column = Math.max(column, p.x) + visibleWidth(p.text);
+			}
+			out.push(`${sliceByColumn(line, this.view.x, width, true)}\x1b[0m`);
+		}
+		return out;
+	}
+
+	/** A part's box: its mark and title only. */
+	private nodeText(n: CanvasNode, selected: boolean): string {
+		const t = this.o.theme;
+		const status = statusOf(n.part);
+		const label = selected
+			? t.bold(t.fg("accent", n.label))
+			: status === "skipped"
+				? t.fg("dim", t.strikethrough(n.label))
+				: t.fg(status === "pending" ? "text" : status === "failed" ? "error" : "muted", n.label);
+		const text = `${mark(t, status, this.frame)} ${label}${n.folded ? t.fg("dim", " ▸") : ""}`;
+		return selected ? t.bg("selectedBg", text) : text;
 	}
 
 	private detailAll(workflow: Workflow, part: Part | undefined, width: number): string[] {
@@ -326,7 +480,7 @@ export class WorkflowBrowser {
 		section("Task", part.detail);
 		section("Note", part.note);
 		section("Result", part.result);
-		if (part.parts.length && !part.detail) out.push("", t.fg("dim", `${part.parts.length} parts; enter folds them`));
+		if (part.parts.length && !part.detail) out.push("", t.fg("dim", `${part.parts.length} parts; space folds them`));
 		return out;
 	}
 
@@ -345,10 +499,11 @@ export class WorkflowBrowser {
 		const t = this.o.theme;
 		if (this.prompt) return t.fg("dim", "type · enter save · esc cancel");
 		const edit = ["e title", "d task", "n new", "i new inside", "x remove", "m model", "+/- at once"];
+		const move = ["↑↓←→ select", "space fold", "shift+↑↓←→ or drag pan"];
 		const parts = this.review
-			? ["a approve", "f feedback", "↑↓ select", "←→ fold", ...edit, "esc close"]
-			: ["↑↓ select", "←→ fold", this.o.workflow().state === "paused" ? "p continue" : "p pause", "c cancel", "r restart", ...edit, "esc close"];
-		if (narrow) parts.splice(2, 0, "⏎ details");
+			? ["a approve", "f feedback", ...move, ...edit, "esc close"]
+			: [...move, this.o.workflow().state === "paused" ? "p continue" : "p pause", "c cancel", "r restart", ...edit, "esc close"];
+		if (narrow) parts.splice(this.review ? 3 : 1, 0, "⏎ details");
 		return t.fg("dim", parts.join(" · "));
 	}
 
@@ -389,30 +544,33 @@ export class WorkflowBrowser {
 
 	private keyInput(data: string): void {
 		const workflow = this.o.workflow();
-		const row = this.current();
-		const part = row?.part;
+		const part = this.current()?.part;
 		const page = Math.max(1, this.layout.bodyRows - 2);
 		const scrolling = this.layout.narrow && this.detail;
 		if (matchesKey(data, Key.escape) || data === "q") {
 			if (scrolling) this.detail = false;
 			else this.o.close();
-		} else if (matchesKey(data, Key.up) || data === "k") {
+		} else if (matchesKey(data, Key.shift("up"))) this.pan(0, -PAN_Y);
+		else if (matchesKey(data, Key.shift("down"))) this.pan(0, PAN_Y);
+		else if (matchesKey(data, Key.shift("left"))) this.pan(-PAN_X, 0);
+		else if (matchesKey(data, Key.shift("right"))) this.pan(PAN_X, 0);
+		else if (matchesKey(data, Key.up) || data === "k") {
 			if (scrolling) this.detailTop = Math.max(0, this.detailTop - 1);
-			else this.move(-1);
+			else this.moveVertically(-1);
 		} else if (matchesKey(data, Key.down) || data === "j") {
 			if (scrolling) this.detailTop += 1;
-			else this.move(1);
-		} else if (matchesKey(data, Key.shift("up"))) this.detailTop = Math.max(0, this.detailTop - 1);
-		else if (matchesKey(data, Key.shift("down"))) this.detailTop += 1;
-		else if (matchesKey(data, Key.pageUp)) this.detailTop = Math.max(0, this.detailTop - page);
+			else this.moveVertically(1);
+		} else if (matchesKey(data, Key.pageUp)) this.detailTop = Math.max(0, this.detailTop - page);
 		else if (matchesKey(data, Key.pageDown)) this.detailTop += page;
-		else if (matchesKey(data, Key.home)) this.move(-Infinity);
-		else if (matchesKey(data, Key.end)) this.move(Infinity);
+		else if (matchesKey(data, Key.home)) this.moveTo("first");
+		else if (matchesKey(data, Key.end)) this.moveTo("last");
 		else if (matchesKey(data, Key.left) || data === "h") {
-			if (part && part.parts.length && !this.folded.has(part.id)) this.toggle(part, false);
-			else if (part?.id.includes(".")) this.select(pathTo(workflow, part.id).at(-2));
+			if (part?.id.includes(".")) this.select(pathTo(workflow, part.id).at(-2));
 		} else if (matchesKey(data, Key.right) || data === "l") {
-			if (part) this.toggle(part, true);
+			if (part?.parts.length) {
+				this.toggle(part, true);
+				this.select(part.parts[0]);
+			}
 		} else if (matchesKey(data, Key.enter) || data === " ") {
 			if (this.layout.narrow && !this.detail && (!part?.parts.length || matchesKey(data, Key.enter))) this.detail = true;
 			else if (part) this.toggle(part);
@@ -455,27 +613,49 @@ export class WorkflowBrowser {
 		else if (data === "r") this.change((w, now) => restartPart(w, part.id, now), `${part.id} starts again`);
 	}
 
+	/** The part whose box is at a point of the popup, if any. */
+	private nodeAt(x: number, y: number): CanvasNode | undefined {
+		const column = this.view.x + x;
+		const row = this.view.y + y - this.layout.bodyTop;
+		return this.canvas.nodes.find((n) => n.row === row && column >= n.x && column < n.x + n.width);
+	}
+
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
 		const { bodyTop, bodyRows, treeWidth, narrow } = this.layout;
 		const x = event.x - 2;
+		if (this.drag && (event.type === "drag" || event.type === "release")) {
+			const { screenX, screenY, x: fromX, y: fromY } = this.drag;
+			this.view = this.clampView(fromX - (event.screenX - screenX), fromY - (event.screenY - screenY));
+			this.follow = false;
+			if (event.type === "release") this.drag = undefined;
+			return { handled: true, render: event.type === "drag" };
+		}
 		const inTree = narrow ? !this.detail : x < treeWidth;
+		const inBody = event.y >= bodyTop && event.y < bodyTop + bodyRows;
 		if (event.type === "wheel") {
-			const by = Math.sign(event.wheelDelta ?? 0);
-			if (inTree) this.move(by);
-			else this.detailTop = Math.max(0, this.detailTop + (event.wheelDelta ?? 0));
+			const by = event.wheelDelta ?? 0;
+			if (!inTree) this.detailTop = Math.max(0, this.detailTop + by);
+			else if (event.shift) this.pan(by * 4, 0);
+			else this.pan(0, by);
 			return { handled: true };
 		}
 		if (event.button !== "left") return undefined;
-		if (event.type === "press" || event.type === "release") return { handled: true, render: false };
+		if (event.type === "press") {
+			if (inTree && inBody) {
+				this.drag = { screenX: event.screenX, screenY: event.screenY, x: this.view.x, y: this.view.y };
+				return { capture: true, render: false };
+			}
+			return { handled: true, render: false };
+		}
+		if (event.type === "release") return { handled: true, render: false };
 		if (event.type !== "click") return undefined;
-		const r = event.y - bodyTop;
-		if (r >= 0 && r < bodyRows && inTree) {
-			const row = this.rows()[this.treeTop + r];
-			if (row) {
-				const again = row.part.id === this.selectedId;
-				this.select(row.part);
+		if (inTree && inBody) {
+			const node = this.nodeAt(x, event.y);
+			if (node) {
+				const again = node.part.id === this.selectedId;
+				this.select(node.part);
 				if (narrow) this.detail = true;
-				else if (again || (event.clickCount ?? 1) >= 2) this.toggle(row.part);
+				else if (again || (event.clickCount ?? 1) >= 2) this.toggle(node.part);
 			}
 		}
 		return { handled: true };

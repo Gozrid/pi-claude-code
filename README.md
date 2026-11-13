@@ -350,17 +350,20 @@ Done steps get a green `✓`, the running one a spinner and its time, failed one
 **Workflows** (`workflow_plan`, `workflow_next`, `workflow_update`, `workflow_status`): a big task planned as a tree – the whole task, big parts, and below each big part small parts, as deep as needed – where every small part is done by a subagent of its own. The agent plans one when you ask for it (`/workflow <task>` asks for you) or proposes one by itself when a task is big enough. The plan opens as a tree for your review, before anything runs:
 
 ```
-╭─ Review the plan · Workflow #3 · Build a car model ───────────────────────────────╮
-│ review · 0 of 7 done · subagents: default model · 3 at once                       │
-│                                                                                   │
-│ ▾ ○ 1 Wheels 0/2              │ 1.1 Screws                                        │
-│   ○ 1.1 Screws                │ pending · model haiku                             │
-│   ○ 1.2 Rubber                │ within 1 Wheels                                   │
-│ ▾ ○ 2 Body 0/2                │                                                   │
-│   ○ 2.1 Frame                 │ Task                                              │
-│   ○ 2.2 Doors                 │ M6 screws for the four wheels                     │
-╰─ a approve · f feedback · ↑↓ select · ←→ fold · e title · d task · n new · … ─────╯
+╭─ Review the plan · Workflow #3 · Build a car model ────────────────────────────────────╮
+│ review · 0 of 4 done · subagents: default model · 3 at once                            │
+│                                                                                        │
+│ ◆ Build a car model ─┬─ ○ 1 Wheels ─┬─ ○ 1.1 Screws │ 1.1 Screws                       │
+│                      │              └─ ○ 1.2 Rubber │ pending · model haiku            │
+│                      └─ ○ 2 Body ───┬─ ○ 2.1 Frame  │ within 1 Wheels                  │
+│                                     └─ ○ 2.2 Doors  │                                  │
+│                                                     │ Task                             │
+│                                                     │ M6 screws for the four wheels    │
+│                                                     │                                  │
+╰─ a approve · f feedback · ↑↓←→ select · space fold · shift+↑↓←→ or drag pan · e titl… ─╯
 ```
+
+The tree stands on a canvas, left to right: the workflow, its big parts, their parts further right, each part a box with its title only; the selected part's task, model, dependencies and result stand beside it. The arrows move from part to part (`←` to the part it belongs to, `→` into its parts) and the canvas follows; to look around the whole tree, move the canvas itself with `Shift`+arrows, the wheel (`Shift`+wheel sideways) or by dragging it with the mouse – `more ←→↑↓` in the top line tells where more of the tree lies. A click on a box selects it, a second click or `Space` folds its parts in or out; in a narrow window the details take the place of the canvas (`Enter`, `Esc` back).
 
 There you edit titles (`e`) and tasks (`d`), add parts next to (`n`) or inside (`i`) the selected one, remove parts (`x`), choose the model of a part's subagents (`m`: default, haiku, sonnet, opus) or of all (`M`) and how many run at once (`+`/`-`), then approve (`a`) or send the plan back with what to change (`f`); the agent gets the plan with your edits. Ids are positions (`1.2` is the second part of the first part) and stay as they are when parts are added or removed. Parts can depend on others (`after 1`); a big part's dependencies hold for all its parts, everything else may run in parallel.
 
