@@ -441,12 +441,20 @@ export default function (pi: ExtensionAPI) {
 		const shown = () => (runner.current?.id === workflow.id ? runner.current : workflow);
 		let restoreBackdrop: (() => void) | undefined;
 		let ticker: ReturnType<typeof setInterval> | undefined;
+		let frames: ReturnType<typeof setInterval> | undefined;
 		let decided = false;
+		// Starts small; the opening unfolds it (pi reads this object on every render).
+		const layout: OverlayOptions = { ...POPUP_LAYOUT, width: 12, minWidth: undefined };
+		const stopFrames = () => {
+			if (frames) clearInterval(frames);
+			frames = undefined;
+		};
 		return ctx.ui.custom<void>(
 			(tui, theme, _keybindings, done) => {
 				const close = () => {
 					if (ticker) clearInterval(ticker);
 					ticker = undefined;
+					stopFrames();
 					restoreBackdrop?.();
 					restoreBackdrop = undefined;
 					if (workflowPopup?.close === close) workflowPopup = undefined;
@@ -474,7 +482,28 @@ export default function (pi: ExtensionAPI) {
 					close,
 				});
 				workflowPopup = { id: workflow.id, close };
+				// Opens like the wish popup and /usage: the frame unfolds from the middle while the
+				// chat behind it darkens, then the title is typed and the rows appear.
+				const openedAt = Date.now();
 				restoreBackdrop = darkenBackdrop(tui, theme, UNFOLD_MS);
+				frames = setInterval(() => {
+					tui.requestRender();
+					if (Date.now() - openedAt >= OPENING_MS) stopFrames();
+				}, FRAME_MS);
+				frames.unref?.();
+				const render = (width: number) => {
+					const elapsed = Date.now() - openedAt;
+					if (elapsed < UNFOLD_MS) {
+						const fullWidth = Math.max(POPUP_LAYOUT.minWidth, Math.floor(tui.terminal.columns * 0.9));
+						const size = unfoldedSize(elapsed, fullWidth, browser.height());
+						// Takes effect with the next frame.
+						layout.width = size.width;
+						layout.minWidth = undefined;
+						return browser.renderUnfolding(width, size.rows);
+					}
+					Object.assign(layout, POPUP_LAYOUT);
+					return browser.render(width, elapsed < OPENING_MS ? elapsed : undefined);
+				};
 				ticker = setInterval(() => {
 					if (shown().state !== "running") return;
 					browser.tick();
@@ -482,17 +511,18 @@ export default function (pi: ExtensionAPI) {
 				}, SPINNER_MS * 2);
 				ticker.unref?.();
 				return {
-					render: (width: number) => browser.render(width),
+					render,
 					invalidate: () => browser.invalidate(),
 					handleInput: (data: string) => browser.handleInput(data),
 					handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
 					dispose: () => {
 						if (ticker) clearInterval(ticker);
+						stopFrames();
 						restoreBackdrop?.();
 					},
 				};
 			},
-			{ overlay: true, overlayOptions: POPUP_LAYOUT },
+			{ overlay: true, overlayOptions: layout },
 		);
 	};
 	host.workflows = new WorkflowRunner({

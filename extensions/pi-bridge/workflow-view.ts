@@ -32,6 +32,7 @@
 
 import { Key, matchesKey, sliceByColumn, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatElapsed, formatTokens } from "../shared/format.ts";
+import { openingTitle, shownRows } from "../shared/opening.ts";
 import { SPINNER } from "./steps.ts";
 import {
 	addPart,
@@ -64,6 +65,7 @@ type Theme = {
 	bg(color: any, text: string): string;
 	bold(text: string): string;
 	strikethrough(text: string): string;
+	inverse(text: string): string;
 };
 
 export function mark(theme: { fg(color: Color, text: string): string }, status: PartStatus, frame: number): string {
@@ -369,7 +371,12 @@ export class WorkflowBrowser {
 		return Math.max(10, this.o.rows());
 	}
 
-	render(width: number): string[] {
+	/**
+	 * The popup. `opening`: ms since it opened, while the opening still plays
+	 * after the frame has unfolded (shared/opening.ts): the title is typed and
+	 * the rows appear from the top.
+	 */
+	render(width: number, opening?: number): string[] {
 		const t = this.o.theme;
 		const workflow = this.o.workflow();
 		const inner = Math.max(10, width - 4);
@@ -390,7 +397,15 @@ export class WorkflowBrowser {
 			else lines.push(`${pad(tree[r] ?? "", treeWidth)}${t.fg("borderMuted", " │ ")}${details[r] ?? ""}`);
 		}
 		const title = `${this.review ? "Review the plan · " : ""}Workflow #${workflow.id} · ${workflow.title}`;
-		return frame(t, width, t.bold(title), this.hint(narrow), lines.map((l) => pad(l, inner)));
+		if (opening === undefined) return frame(t, width, t.bold(title), this.hint(narrow), lines.map((l) => pad(l, inner)));
+		const visible = shownRows(opening, lines.length);
+		return frame(t, width, openingTitle(t, title, opening), this.hint(narrow), lines.map((l, i) => pad(i < visible ? l : "", inner)));
+	}
+
+	/** The empty frame while it unfolds, `rows` high (borders included). */
+	renderUnfolding(width: number, rows: number): string[] {
+		const blank = " ".repeat(Math.max(0, width - 4));
+		return frame(this.o.theme, width, "", "", new Array(Math.max(0, rows - 2)).fill(blank));
 	}
 
 	/** Arrows to where more of the tree lies beyond the view, e.g. "→↓". */

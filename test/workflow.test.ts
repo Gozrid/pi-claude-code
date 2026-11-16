@@ -287,7 +287,12 @@ test("above the editor: the workflow's progress, its big parts and the small par
 	for (const line of workflowLines(colors, w, 20)) assert.ok(visibleWidth(line) <= 20, line);
 });
 
-const popupTheme = { ...colors, fg: (c: any, t: string) => colors.fg(c in CODES ? c : "text", t), bg: (_c: any, t: string) => t };
+const popupTheme = {
+	...colors,
+	fg: (c: any, t: string) => colors.fg(c in CODES ? c : "text", t),
+	bg: (_c: any, t: string) => t,
+	inverse: (t: string) => `\x1b[7m${t}\x1b[27m`,
+};
 
 function browser(w: Workflow, extra: Partial<ConstructorParameters<typeof WorkflowBrowser>[0]> = {}) {
 	const runner = new WorkflowRunner({ store: tempStore() });
@@ -416,4 +421,20 @@ test("the tools: plan needs a UI, next and update need a workflow, the instructi
 	assert.match((await call("workflow_update", { id: "1", status: "done" })).text, /No workflow is running/);
 	assert.match((await call("workflow_status", { list: true })).text, /No workflows saved/);
 	assert.match(SERVER_INSTRUCTIONS, /workflow_plan/);
+});
+
+test("the workflow popup opens like the wish popup: the frame unfolds, then the title is typed and the rows appear", async () => {
+	const { OPENING_MS, UNFOLD_MS } = await import("../extensions/shared/opening.ts");
+	const popup = browser(build({ title: "Animated", parts: [{ title: "Wheels" }] }));
+	const folded = popup.renderUnfolding(30, 4);
+	assert.equal(folded.length, 4, "as high as the frame has unfolded");
+	assert.ok(folded.every((line) => visibleWidth(line) === 30));
+	assert.doesNotMatch(plain(folded).join("\n"), /Animated|Wheels/, "an empty frame");
+
+	assert.doesNotMatch(plain(popup.render(120, UNFOLD_MS)).join("\n"), /Animated|Wheels/, "no title and no rows yet");
+	const opened = popup.render(120, OPENING_MS - 1);
+	assert.match(plain(opened).join("\n"), /Wheels/, "the rows have appeared");
+	assert.equal(opened.length, 20);
+	assert.ok(opened.every((line) => visibleWidth(line) === 120), "every line as wide as the popup while it opens");
+	assert.match(plain(popup.render(120)).join("\n"), /╭─ Review the plan · Workflow #1 · Animated /, "the plain title once open");
 });
