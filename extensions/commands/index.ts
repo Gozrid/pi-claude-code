@@ -6,12 +6,15 @@
  *                                        as a slider with the levels the active model supports
  *   /export [copy|file [path]]           the whole conversation as Markdown, copied or saved
  *                                        (see export.ts; .html/.jsonl paths stay pi's export)
+ *
+ * It also remembers the model picked last as pi's default (see remember-model.ts).
  */
 
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { pickEffort } from "./effort-picker.ts";
 import { exportCommand } from "./export.ts";
+import { rememberModel } from "./remember-model.ts";
 
 // Effort is pi's thinking level; for Claude CLI models it becomes `claude --effort`.
 const EFFORT_HINTS: Record<string, string> = {
@@ -31,6 +34,7 @@ function effortLevels(model: ExtensionContext["model"]): string[] {
 
 export default function (pi: ExtensionAPI) {
 	exportCommand(pi);
+	rememberModel(pi);
 
 	/** Completions get no context; they offer the levels of the model last seen. */
 	let model: ExtensionContext["model"];

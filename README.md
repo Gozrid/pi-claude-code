@@ -15,7 +15,7 @@ Extensions for [pi](https://pi.dev) in one package:
 - **chat-view** – changes to the chat itself, for every model: keeps the user's message pinned at the top while the answer and thinking scroll below it, shows the keys for steering and queueing (including steer now) with the waiting messages while the agent works, groups thinking and tool calls so the answer stands apart, shows tool calls readably – the CLI agents' and the MCP tools of pi's own models (highlighted code, diffs, tables, file contents with line numbers, images, errors in red, long output collapsed until Ctrl+O), draws code blocks without the ``` fences, turns Mermaid flowcharts too wide for the chat and asks the model to redraw what still does not fit, lists the loaded extensions in the empty chat, opens the session's earlier prompts as a list with ↑, shows the suggestions for /commands and files in a frame above the editor, marks shell commands in the editor (`!` purple borders, `!!` grey text, a hint where the output goes), after a long round shows the answer in a scrollable box above the editor, and lets the editor grow and shrink smoothly
 - **image-paste** – attaches the images you paste (Ctrl+V), drag in or name by path in a prompt, so the model sees them directly
 - **work-status** – for every model: an animation in Claude Code style while a CLI provider works, a "✻ Cooked for 1m 12s" line after each answer, a working star in the terminal tab title, a macOS notification for long answers and a session title (and so tab name) written by the provider's smallest model
-- **commands** – general, useful commands for every model: `/clear`, `/effort`, `/export`
+- **commands** – general, useful commands for every model: `/clear`, `/effort`, `/export`; remembers the model picked last for the next start
 - **ide** – connects pi to a JetBrains IDE (IntelliJ IDEA, WebStorm, Android Studio, …) or VS Code through their Claude Code plugin: the selection or open file stands above the editor and goes with the next message, Alt+K (or Cmd+Alt+K in the IDE) inserts a reference like `@src/foo.ts#L12-30`, a running IDE without the plugin gets a hint, and the way back: file references in the chat open in the IDE with a click, `/ide open` opens a file at a line, `/ide diff` shows a change in the IDE's diff viewer
 
 Each one can be switched on and off on its own with `pi config`.
@@ -773,6 +773,8 @@ General commands, independent of the model:
 | `/export file [path]` | save it (default: `pi-<session>-<time>.md` in the working directory) |
 | `/export <file>.html` / `.jsonl` | pi's own export, as before |
 
+**Last model remembered:** every model switch – in `/model`, by cycling or by an agent's `set_model` – is saved as pi's default model (`defaultProvider`/`defaultModel` in `~/.pi/agent/settings.json`), so the next start and new sessions begin with the model picked last. pi on its own only saves a model set as default in `/model`. Resuming a session with another model does not change the default.
+
 The Markdown export contains the prompts and answers, thinking (folded), tool calls with their arguments and results (folded), shell commands and the summaries of compactions – to read it later or to hand it to a new chat. pi handles its built-in `/export` before any extension command, so this one takes over Enter while the editor holds `/export …`; paths ending in `.html` or `.jsonl` are left to pi.
 
 ## ide
@@ -883,6 +885,7 @@ Layout:
 | `extensions/commands/index.ts` | `/clear`, `/effort`, `/export` |
 | `extensions/commands/effort-picker.ts` | effort slider for `/effort` |
 | `extensions/commands/export.ts`, `conversation.ts` | `/export` and the conversation as Markdown |
+| `extensions/commands/remember-model.ts` | saves the model picked last as pi's default |
 | `extensions/ide/index.ts` | IDE connection: finding and connecting the IDE, the line above the editor, Alt+K, the context with the next message, `/ide` |
 | `extensions/ide/lockfiles.ts` | the IDE plugins' lock files and which IDE fits pi's folder |
 | `extensions/ide/connection.ts` | MCP client over WebSocket to the IDE: handshake, notifications, tool calls |
