@@ -19,8 +19,20 @@ const QUERY_TIMEOUT_MS = 20_000;
  */
 export const MCP_TOOL_TIMEOUT_MS = 20 * 24 * 3600_000;
 
+/**
+ * Claude also stops a call that sends no response or progress for 300 seconds
+ * (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, ms; 0 switches it off). A dialog sends
+ * nothing while the user thinks, so that limit is off.
+ */
+export const MCP_TOOL_IDLE_TIMEOUT = "0";
+
 export function childEnv(extra?: Record<string, string>, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS), ...base, ...extra };
+	const env: NodeJS.ProcessEnv = {
+		MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS),
+		CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: MCP_TOOL_IDLE_TIMEOUT,
+		...base,
+		...extra,
+	};
 	delete env.CLAUDECODE;
 	return env;
 }

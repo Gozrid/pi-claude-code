@@ -374,6 +374,9 @@ test("claude waits for pi's dialogs: no MCP tool timeout unless the user set one
 	assert.equal(env.CLAUDECODE, undefined);
 	assert.equal(env.FOO, "1");
 	assert.equal(childEnv(undefined, { MCP_TOOL_TIMEOUT: "5000" }).MCP_TOOL_TIMEOUT, "5000");
+	// Claude's idle limit (no response or progress for 5 minutes) is off too, unless the user set one.
+	assert.equal(env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+	assert.equal(childEnv(undefined, { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "9000" }).CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "9000");
 });
 
 // Steering: claude takes a steer up while it works; the answer splits there and the next turn reads on.
