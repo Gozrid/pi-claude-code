@@ -334,6 +334,26 @@ test("with pi's own server, Claude gets it too and asks pi before what its mode 
 	}
 });
 
+test("pi's own dialog and read-only tools are allowed up front, together with tools allowed once", async () => {
+	runtime.bridge = () => ({
+		name: "pi",
+		url: "http://127.0.0.1:9/mcp",
+		headers: {},
+		permissionTool: "mcp__pi__permission",
+		allowedTools: ["mcp__pi__ask", "mcp__pi__status"],
+	});
+	runtime.allowOnce = ["Bash"];
+	try {
+		const { recorded } = await run(toolRun());
+		const args: string[] = recorded.args;
+		assert.equal(args.filter((a) => a === "--allowedTools").length, 1);
+		assert.equal(args[args.indexOf("--allowedTools") + 1], "mcp__pi__ask,mcp__pi__status,Bash");
+	} finally {
+		runtime.bridge = undefined;
+		runtime.allowOnce = undefined;
+	}
+});
+
 test("without a user interface to ask, prompts are denied as before", async () => {
 	runtime.bridge = () => ({ name: "pi", url: "http://127.0.0.1:9/mcp", headers: {} });
 	try {

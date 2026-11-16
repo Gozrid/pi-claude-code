@@ -307,6 +307,8 @@ Claude wants to run a command
 
 "All projects" writes to `settings.json` in the instance's config folder (`CLAUDE_CONFIG_DIR` of its command, else `~/.claude`). Without a user interface (pi in print or JSON mode) Claude denies as before and **permission-retry** offers the retry.
 
+pi's own tools that only ask you (`ask`) or read pi's state (`status`, `settings`, `wishes`, …) never wait for such a prompt: Claude gets them with `--allowedTools mcp__pi__<tool>`, and should it ask anyway (e.g. the `auto` mode's check on a big question), pi allows them without a dialog. Tools that change something still ask.
+
 **Permission prompts (agy)**: agy in print mode denies what its mode does not allow, and a hook can block an action but not allow a denied one. So in modes `default` and `accept-edits` the order is reversed: the run gets broad allow rules (`command(*)`, `unsandboxed(*)`, `write_file(*)`, `read_file(*)` and pi's own tools, on top of the user's rules, via `--settings`), and a PreToolUse hook in the `--gemini_dir` mirror (`config/hooks.json`, next to the user's hooks) asks pi before:
 
 - every command, unless one of the user's `command(…)` rules covers it (by prefix)

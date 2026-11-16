@@ -46,7 +46,7 @@ import { BridgeServer } from "./server.ts";
 import { McpProxy } from "./mcp-proxy.ts";
 import { PI_MCP_SOURCE } from "../shared/pi-mcp.ts";
 import { GATE_RULES, GATED_MODES, HOOK_TIMEOUT } from "./agy-gate.ts";
-import { agyHook, bridgeTools, type ClientData, type Host, oneAtATime, SERVER_INSTRUCTIONS, wishesFileOf } from "./tools.ts";
+import { agyHook, bridgeTools, type ClientData, freeTools, type Host, oneAtATime, SERVER_INSTRUCTIONS, SERVER_NAME, wishesFileOf } from "./tools.ts";
 import { ask } from "./ask.ts";
 import { type Workflow, WorkflowStore } from "./workflow.ts";
 import { type ReviewResult, WorkflowRunner } from "./workflow-runner.ts";
@@ -59,7 +59,7 @@ import { darkenBackdrop } from "../shared/backdrop.ts";
 import { OPENING_MS, UNFOLD_MS, unfoldedSize } from "../shared/opening.ts";
 import { rowClick, WISH_LIST_CHANNEL, type WishListOffer } from "../shared/wish-list.ts";
 
-export const SERVER_NAME = "pi";
+export { SERVER_NAME };
 export const PERMISSION_TOOL = `mcp__${SERVER_NAME}__permission`;
 /** pi tools the model sees right away; the others are found through tool search. */
 const DIRECT = new Set(["ask", "change_request"]);
@@ -594,6 +594,7 @@ export default function (pi: ExtensionAPI) {
 			headers,
 			...(proxy.active ? { mcpUrl: url } : {}),
 			...(request.kind === "claude" && current?.hasUI ? { permissionTool: PERMISSION_TOOL } : {}),
+			...(request.kind === "claude" ? { allowedTools: freeTools(tools).map((t) => `mcp__${SERVER_NAME}__${t.name}`) } : {}),
 			...(hooked
 				? {
 						gate: {

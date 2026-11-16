@@ -427,11 +427,25 @@ test("the extension answers a provider's request with its server and gives pi's 
 		const info = request(true);
 		assert.equal(info.name, "pi");
 		assert.equal(info.permissionTool, "mcp__pi__permission");
+		// pi's own dialog and read-only tools never wait for a permission prompt; tools that change things do.
+		assert.ok(info.allowedTools.includes("mcp__pi__ask"));
+		assert.ok(info.allowedTools.includes("mcp__pi__status"));
+		assert.ok(!info.allowedTools.includes("mcp__pi__permission"));
+		assert.ok(!info.allowedTools.includes("mcp__pi__set_theme"));
 		assert.equal(info.mcpUrl, undefined, "pi's servers are proxied only once pi lent its tools");
 		registered.find((t) => t.name === "pi_ask").prepareLoadout({ registered: [], getExposure: () => "direct", getNamespace: () => undefined });
 		assert.equal(request(true).mcpUrl, info.url);
 		const list = await rpc(info.url, info.headers.Authorization.slice(7), { jsonrpc: "2.0", id: 1, method: "tools/list" });
 		assert.ok(list.body.result.tools.some((t: any) => t.name === "permission"));
+		// Even when Claude asks for one of them (auto mode), it is allowed without a dialog, however big its input.
+		const big = { questions: [{ question: "x".repeat(50_000), options: [{ label: "a" }, { label: "b" }] }] };
+		const asked = await rpc(info.url, info.headers.Authorization.slice(7), {
+			jsonrpc: "2.0",
+			id: 2,
+			method: "tools/call",
+			params: { name: "permission", arguments: { tool_name: "mcp__pi__ask", input: big } },
+		});
+		assert.deepEqual(JSON.parse(asked.body.result.content[0].text), { behavior: "allow", updatedInput: big });
 		// Every agy run gets the hook that holds it while a dialog is open; only the gated modes get the gate's rules.
 		const agy = (mode: string) => {
 			let reply: any;

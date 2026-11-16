@@ -282,6 +282,12 @@ export interface BridgeServerInfo {
 	/** Claude: the tool for --permission-prompt-tool; unset when nobody can answer (no UI). */
 	permissionTool?: string;
 	/**
+	 * Claude: pi's own tools that need no permission, as `mcp__pi__<tool>` (they
+	 * only ask the user or read pi's state); passed as --allowedTools, so Claude
+	 * never holds them for a permission prompt, however big their input.
+	 */
+	allowedTools?: string[];
+	/**
 	 * agy: pi asks before actions (see pi-bridge/agy-gate.ts). The run starts
 	 * with `allow` added to the user's allow rules and a PreToolUse hook that
 	 * posts to `url`, waiting up to `timeout` seconds. Unset when pi does not ask.

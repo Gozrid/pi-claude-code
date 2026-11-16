@@ -282,9 +282,21 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 
+/** The MCP server name pi's tools go by, `mcp__pi__<tool>` for Claude. */
+export const SERVER_NAME = "pi";
+
+/**
+ * pi's tools Claude may call without a permission prompt: they only ask the
+ * user (`ask`) or read pi's state. A prompt for them would show the whole input
+ * as a dialog before the real one, and the call would end if it is not allowed.
+ */
+export function freeTools(tools: BridgeTool[]): BridgeTool[] {
+	return tools.filter((t) => !t.only && t.annotations?.readOnlyHint === true);
+}
+
 export function bridgeTools(host: Host): BridgeTool[] {
 	const pi = host.pi;
-	return [
+	const list: BridgeTool[] = [
 		{
 			name: "ask",
 			description:
@@ -308,7 +320,8 @@ export function bridgeTools(host: Host): BridgeTool[] {
 				const request = { tool: String(args.tool_name), input };
 				const rule = ruleFor(request, data.cwd ?? process.cwd());
 				const decide = (decision: PermissionDecision) => text(JSON.stringify(decision));
-				if (host.sessionRules.has(rule)) return decide({ behavior: "allow", updatedInput: input });
+				const free = freeTools(list).some((t) => request.tool === `mcp__${SERVER_NAME}__${t.name}`);
+				if (free || host.sessionRules.has(rule)) return decide({ behavior: "allow", updatedInput: input });
 				const ctx = host.ctx();
 				if (!ctx?.hasUI) return decide({ behavior: "deny", message: NO_UI });
 				const question = permissionQuestion(request, agentName(client), rule, !!data.claudeSettings);
@@ -784,6 +797,7 @@ export function bridgeTools(host: Host): BridgeTool[] {
 			},
 		},
 	];
+	return list;
 }
 
 /** Instructions the CLIs get with the server. */

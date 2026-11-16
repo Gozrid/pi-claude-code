@@ -110,6 +110,8 @@ export function piMcpArgs(provider = "", command = "claude"): string[] {
 	const permission = bridge?.permissionTool
 		? ["--permission-prompts", "host", "--permission-prompt-tool", bridge.permissionTool]
 		: ["--permission-prompts", "none"];
+	// pi's own dialog and read-only tools never wait for a permission prompt.
+	if (bridge?.allowedTools?.length) permission.push("--allowedTools", bridge.allowedTools.join(","));
 	if (ownMcp()) {
 		// Claude keeps its own servers; pi's server comes on top.
 		return [...permission, ...(bridge ? ["--mcp-config", privateFile("claude-mcp", mcpConfigJson(own))] : [])];
@@ -575,7 +577,11 @@ export function streamClaudeCode(
 			// Tools the user allowed once after a denial.
 			const allowOnce = runtime.allowOnce;
 			runtime.allowOnce = undefined;
-			if (allowOnce?.length) args.push("--allowedTools", allowOnce.join(","));
+			if (allowOnce?.length) {
+				const at = args.indexOf("--allowedTools");
+				if (at >= 0) args[at + 1] = [args[at + 1], ...allowOnce].join(",");
+				else args.push("--allowedTools", allowOnce.join(","));
+			}
 			const extra = process.env.PI_CLAUDE_EXTRA_ARGS?.trim();
 			if (extra) args.push(...extra.split(/\s+/));
 
