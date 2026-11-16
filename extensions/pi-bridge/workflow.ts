@@ -78,6 +78,8 @@ export interface Workflow {
 	/** The whole task in the user's words. */
 	goal?: string;
 	cwd: string;
+	/** The pi session that planned it; only that session shows and continues it by itself. */
+	session?: string;
 	createdAt: number;
 	updatedAt: number;
 	state: WorkflowState;
@@ -632,8 +634,10 @@ export class WorkflowStore {
 		return Math.max(0, ...taken) + 1;
 	}
 
-	/** The newest workflow of this folder that has not ended. */
-	latestOpen(cwd: string): Workflow | undefined {
-		return this.list().find((w) => w.cwd === cwd && w.state !== "done" && w.state !== "stopped" && w.state !== "review");
+	/** The newest workflow of this folder and pi session that has not ended. */
+	latestOpen(cwd: string, session: string | undefined): Workflow | undefined {
+		return this.list().find(
+			(w) => w.cwd === cwd && w.session === session && w.state !== "done" && w.state !== "stopped" && w.state !== "review",
+		);
 	}
 }

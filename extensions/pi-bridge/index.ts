@@ -498,6 +498,7 @@ export default function (pi: ExtensionAPI) {
 	host.workflows = new WorkflowRunner({
 		store: new WorkflowStore(join(getAgentDir(), "workflows")),
 		onChange: showWorkflow,
+		session: () => current?.sessionManager?.getSessionId?.(),
 		review: (workflow) =>
 			oneAtATime(
 				() =>

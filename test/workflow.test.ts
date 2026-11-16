@@ -253,6 +253,17 @@ test("a workflow left open is continued after pi starts again, paused", () => {
 	assert.equal(store.load(1)?.state, "paused");
 });
 
+test("a workflow belongs to the pi session that planned it; another session does not show it", async () => {
+	const store = tempStore();
+	const mine = new WorkflowRunner({ store, session: () => "a", review: async () => ({ kind: "approved" }) });
+	await mine.plan({ title: "T", parts: [{ title: "A" }] }, "/p");
+	assert.equal(store.load(1)?.session, "a");
+	// Another pi launch in the same folder, with a session of its own.
+	assert.equal(new WorkflowRunner({ store, session: () => "b" }).restore("/p"), undefined);
+	// The same session opened again continues it.
+	assert.equal(new WorkflowRunner({ store, session: () => "a" }).restore("/p")?.id, 1);
+});
+
 /** A theme with plain ANSI codes. */
 const CODES = { accent: 36, dim: 2, muted: 90, success: 32, error: 31, warning: 33, text: 39 } as const;
 const colors: WorkflowColors = {

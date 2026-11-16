@@ -40,6 +40,8 @@ export interface RunnerOptions {
 	ask?(questions: AskQuestion[], title: string): Promise<AskAnswer[] | undefined>;
 	/** Sends the agent a message that starts a turn (or follows the running one). */
 	wake?(workflow: Workflow, text: string): void;
+	/** The id of pi's session; a workflow belongs to the session that planned it. */
+	session?(): string | undefined;
 	now?(): number;
 }
 
@@ -76,10 +78,14 @@ export class WorkflowRunner {
 		this.o.onChange?.();
 	}
 
-	/** At session start: the newest unfinished workflow of this folder, paused until the user goes on. */
+	/**
+	 * At session start: the newest unfinished workflow of this folder and
+	 * session, paused until the user goes on. Another pi's workflows (another
+	 * session, maybe still running) are left alone.
+	 */
 	restore(cwd: string): Workflow | undefined {
 		if (this.current) return this.current;
-		const workflow = this.o.store.latestOpen(cwd);
+		const workflow = this.o.store.latestOpen(cwd, this.o.session?.());
 		if (!workflow) return undefined;
 		afterRestart(workflow, this.now());
 		this.current = workflow;
@@ -110,6 +116,8 @@ export class WorkflowRunner {
 	async plan(args: Record<string, unknown>, cwd: string): Promise<string> {
 		if (!this.o.review) throw new Error("pi runs without a user interface (print or JSON mode), so nobody can review the plan.");
 		const workflow = buildWorkflow(args, { id: this.o.store.nextId(), cwd, now: this.now() });
+		const session = this.o.session?.();
+		if (session) workflow.session = session;
 		const before = this.current;
 		this.current = workflow;
 		this.changed(workflow);
