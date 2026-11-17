@@ -326,6 +326,8 @@ test("with pi's own server, Claude gets it too and asks pi before what its mode 
 		assert.equal(args[args.indexOf("--permission-prompt-tool") + 1], "mcp__pi__permission");
 		const servers = JSON.parse(readFileSync(args[args.indexOf("--mcp-config") + 1]!, "utf8")).mcpServers;
 		assert.deepEqual(servers.pi, { type: "http", url: "http://127.0.0.1:9/mcp", headers: { Authorization: "Bearer t" } });
+		// Questions go through pi's dialog, not Claude's own question tool.
+		assert.equal(args[args.indexOf("--disallowedTools") + 1], "AskUserQuestion");
 		// The user denied it in pi already: no note, no retry offer.
 		assert.ok(!texts(message).some((t) => t.includes("not allowed")));
 		assert.equal(runtime.denials, undefined);
@@ -361,6 +363,7 @@ test("without a user interface to ask, prompts are denied as before", async () =
 		const args: string[] = recorded.args;
 		assert.equal(args[args.indexOf("--permission-prompts") + 1], "none");
 		assert.ok(!args.includes("--permission-prompt-tool"));
+		assert.ok(!args.includes("--disallowedTools"), "without a dialog Claude keeps its own question tool");
 	} finally {
 		runtime.bridge = undefined;
 	}

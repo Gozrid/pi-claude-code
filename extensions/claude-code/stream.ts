@@ -102,7 +102,8 @@ export function scratchDir(piSessionId: string | undefined): string {
  * line. With pi-bridge, the servers come through pi's own connections and
  * show only the tools pi does not hide; without it, Claude starts them itself
  * and the tools pi hides are disallowed. When pi can answer permission
- * prompts, Claude asks it instead of denying what its mode does not allow.
+ * prompts, Claude asks it instead of denying what its mode does not allow,
+ * and its own question tool is disallowed: questions go through pi's `ask`.
  */
 export function piMcpArgs(provider = "", command = "claude"): string[] {
 	const bridge = runtime.bridge?.(provider, command);
@@ -112,9 +113,12 @@ export function piMcpArgs(provider = "", command = "claude"): string[] {
 		: ["--permission-prompts", "none"];
 	// pi's own dialog and read-only tools never wait for a permission prompt.
 	if (bridge?.allowedTools?.length) permission.push("--allowedTools", bridge.allowedTools.join(","));
+	// pi's dialog answers questions; Claude's own would come as a permission prompt.
+	const ownTools = bridge?.permissionTool ? [CLAUDE_ASK_TOOL] : [];
+	const disallow = (tools: string[]) => (tools.length > 0 ? ["--disallowedTools", tools.join(",")] : []);
 	if (ownMcp()) {
 		// Claude keeps its own servers; pi's server comes on top.
-		return [...permission, ...(bridge ? ["--mcp-config", privateFile("claude-mcp", mcpConfigJson(own))] : [])];
+		return [...permission, ...(bridge ? ["--mcp-config", privateFile("claude-mcp", mcpConfigJson(own))] : []), ...disallow(ownTools)];
 	}
 	const { servers } = piMcpServers({ agentDir: getAgentDir(), cwd: runtime.cwd, projectTrusted: runtime.projectTrusted });
 	const proxy = bridge?.mcpUrl ? { url: (name: string) => `${bridge.mcpUrl}/${encodeURIComponent(name)}`, headers: bridge.headers } : undefined;
@@ -124,9 +128,12 @@ export function piMcpArgs(provider = "", command = "claude"): string[] {
 		"--strict-mcp-config",
 		"--mcp-config",
 		privateFile("claude-mcp", mcpConfigJson({ ...viaProxy(servers, proxy), ...own })),
-		...(hidden.length > 0 ? ["--disallowedTools", hidden.map((t) => `mcp__${t.server}__${t.tool}`).join(",")] : []),
+		...disallow([...hidden.map((t) => `mcp__${t.server}__${t.tool}`), ...ownTools]),
 	];
 }
+
+/** Claude Code's built-in question tool; with pi-bridge, pi's `ask` takes its place. */
+export const CLAUDE_ASK_TOOL = "AskUserQuestion";
 
 function chatInstructions(scratch: string): string {
 	return `You are running inside pi, a terminal chat UI, through the Claude Code CLI. The user reads your replies as rendered Markdown.
