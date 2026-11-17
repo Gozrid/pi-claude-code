@@ -161,3 +161,44 @@ export function addAllowRule(file: string, rule: string): boolean {
 		return false;
 	}
 }
+
+/**
+ * Claude Code's own question tool. With `--permission-prompt-tool` it comes as
+ * a permission request; it is answered with pi's question dialog instead, and
+ * the answers go back in `updatedInput.answers` (question text → answer), the
+ * way Claude's SDK hosts answer it.
+ */
+export const ASK_USER_QUESTION = "AskUserQuestion";
+
+const RECOMMENDED = /\s*\(recommended\)\s*$/i;
+
+/** pi's dialog for AskUserQuestion's input; "(Recommended)" becomes the mark. */
+export function askUserQuestions(input: Record<string, any>): AskQuestion[] {
+	const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
+	return questions.map((q) => ({
+		question: str(q?.question),
+		header: typeof q?.header === "string" ? q.header : undefined,
+		multiSelect: q?.multiSelect === true,
+		options: (Array.isArray(q?.options) ? q.options : []).map((o: any) => {
+			const label = str(o?.label);
+			return {
+				label: label.replace(RECOMMENDED, ""),
+				description: typeof o?.description === "string" ? o.description : undefined,
+				...(RECOMMENDED.test(label) ? { recommended: true } : {}),
+			};
+		}),
+	}));
+}
+
+/** Claude's answer to AskUserQuestion: the original labels, joined with ", "; own text added. */
+export function askUserDecision(input: Record<string, any>, answers: AskAnswer[] | undefined): PermissionDecision {
+	if (!answers) return { behavior: "deny", message: "The user closed the dialog without answering." };
+	const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
+	const result: Record<string, string> = {};
+	answers.forEach((answer, i) => {
+		const labels: string[] = (Array.isArray(questions[i]?.options) ? questions[i].options : []).map((o: any) => str(o?.label));
+		const chosen = answer.selected.map((s) => labels.find((l) => l.replace(RECOMMENDED, "") === s) ?? s);
+		result[str(questions[i]?.question ?? answer.question)] = [...chosen, answer.own].filter(Boolean).join(", ");
+	});
+	return { behavior: "allow", updatedInput: { ...input, answers: result } };
+}

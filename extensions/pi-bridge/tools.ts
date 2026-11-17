@@ -13,7 +13,7 @@ import { piPackageDir } from "../shared/pi-install.ts";
 import { MODE_CHANNEL, type ModeRequest } from "../shared/agent-bus.ts";
 import { ask, formatAnswers, QUESTIONS_SCHEMA, type AskQuestion } from "./ask.ts";
 import { agyRuleFor, describeAction, GATED_MODES, gateAction, type HookPayload, needsAsking } from "./agy-gate.ts";
-import { addAllowRule, agyPermissionQuestion, choiceFrom, type PermissionDecision, permissionQuestion, ruleFor } from "./permission.ts";
+import { ASK_USER_QUESTION, addAllowRule, agyPermissionQuestion, askUserDecision, askUserQuestions, choiceFrom, type PermissionDecision, permissionQuestion, ruleFor } from "./permission.ts";
 import type { BridgeClient, BridgeTool, ToolResult } from "./server.ts";
 import { addWish, cut, readWishes, SHORT_MAX, setWishStatus, WISH_STATUSES, type Wish, type WishStatus } from "./wishes.ts";
 import { formatElapsed, MAX_TIMEOUT_MIN, DEFAULT_TIMEOUT_MIN, timeoutMsOf, type Watches } from "./watch.ts";
@@ -320,6 +320,11 @@ export function bridgeTools(host: Host): BridgeTool[] {
 				const request = { tool: String(args.tool_name), input };
 				const rule = ruleFor(request, data.cwd ?? process.cwd());
 				const decide = (decision: PermissionDecision) => text(JSON.stringify(decision));
+				if (request.tool === ASK_USER_QUESTION) {
+					const ctx = host.ctx();
+					if (!ctx?.hasUI) return decide({ behavior: "deny", message: NO_UI });
+					return decide(askUserDecision(input, await oneAtATime(() => ask(ctx.ui as any, askUserQuestions(input)))));
+				}
 				const free = freeTools(list).some((t) => request.tool === `mcp__${SERVER_NAME}__${t.name}`);
 				if (free || host.sessionRules.has(rule)) return decide({ behavior: "allow", updatedInput: input });
 				const ctx = host.ctx();

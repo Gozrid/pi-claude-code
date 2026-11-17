@@ -12,6 +12,8 @@ import {
 	ALLOW_ONCE,
 	ALLOW_PROJECT,
 	addAllowRule,
+	askUserDecision,
+	askUserQuestions,
 	choiceFrom,
 	DENY,
 	permissionQuestion,
@@ -350,6 +352,34 @@ test("the answer decides: allow with a scope, or deny with the user's words", ()
 		message: "The user denied this action: run the tests first",
 	});
 	assert.equal(choiceFrom(undefined).allow, false);
+});
+
+test("Claude's AskUserQuestion becomes pi's question dialog and its answers go back to Claude", () => {
+	const input = {
+		questions: [
+			{ question: "Which price?", header: "Price", multiSelect: false, options: [{ label: "Daily (Recommended)", description: "per day" }, { label: "Flat" }] },
+			{ question: "Which extras?", header: "Extras", multiSelect: true, options: [{ label: "Fuel" }, { label: "Tolls" }] },
+			{ question: "Name?", header: "Name", options: [{ label: "A" }] },
+		],
+	};
+	const questions = askUserQuestions(input);
+	assert.deepEqual(questions[0], {
+		question: "Which price?",
+		header: "Price",
+		multiSelect: false,
+		options: [{ label: "Daily", description: "per day", recommended: true }, { label: "Flat", description: undefined }],
+	});
+	assert.equal(questions[1].multiSelect, true);
+	const decision = askUserDecision(input, [
+		{ question: "Which price?", selected: ["Daily"] },
+		{ question: "Which extras?", selected: ["Fuel", "Tolls"] },
+		{ question: "Name?", selected: [], own: "Rental" },
+	]);
+	assert.deepEqual(decision, {
+		behavior: "allow",
+		updatedInput: { ...input, answers: { "Which price?": "Daily (Recommended)", "Which extras?": "Fuel, Tolls", "Name?": "Rental" } },
+	});
+	assert.deepEqual(askUserDecision(input, undefined), { behavior: "deny", message: "The user closed the dialog without answering." });
 });
 
 test("an always-allow rule is added to the settings file, keeping the rest", () => {

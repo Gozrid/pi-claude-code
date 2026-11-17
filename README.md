@@ -309,6 +309,8 @@ Claude wants to run a command
 
 pi's own tools that only ask you (`ask`) or read pi's state (`status`, `settings`, `wishes`, …) never wait for such a prompt: Claude gets them with `--allowedTools mcp__pi__<tool>`, and should it ask anyway (e.g. the `auto` mode's check on a big question), pi allows them without a dialog. Tools that change something still ask.
 
+Claude's own question tool `AskUserQuestion` also arrives as a permission request; pi shows its questions in the question dialog (an option ending in "(Recommended)" gets the mark) instead of a permission prompt with the raw JSON, and sends the answers back as Claude's answers (`updatedInput.answers`, several choices joined with ", "). Closing the dialog denies the call.
+
 **Permission prompts (agy)**: agy in print mode denies what its mode does not allow, and a hook can block an action but not allow a denied one. So in modes `default` and `accept-edits` the order is reversed: the run gets broad allow rules (`command(*)`, `unsandboxed(*)`, `write_file(*)`, `read_file(*)` and pi's own tools, on top of the user's rules, via `--settings`), and a PreToolUse hook in the `--gemini_dir` mirror (`config/hooks.json`, next to the user's hooks) asks pi before:
 
 - every command, unless one of the user's `command(…)` rules covers it (by prefix)
