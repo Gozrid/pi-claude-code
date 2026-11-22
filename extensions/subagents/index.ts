@@ -17,6 +17,7 @@ import { getMarkdownTheme, type ExtensionAPI, type ExtensionContext } from "@ear
 import { Markdown, type OverlayOptions, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { type Subagent, SUBAGENTS_CHANNEL, type SubagentsEvent } from "../shared/agent-bus.ts";
 import { darkenBackdrop } from "../shared/backdrop.ts";
+import { closable } from "../shared/dialog.ts";
 import { OPENING_MS, UNFOLD_MS, unfoldedSize } from "../shared/opening.ts";
 import { SubagentBrowser } from "./browser.ts";
 import { panelLines, sortAgents } from "./panel.ts";
@@ -102,13 +103,18 @@ export default function (pi: ExtensionAPI) {
 					Object.assign(layout, POPUP_LAYOUT);
 					return browser.render(width, elapsed < OPENING_MS ? elapsed : undefined);
 				};
-				return {
-					render,
-					invalidate: () => browser.invalidate(),
-					handleInput: (data: string) => browser.handleInput(data),
-					handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
-					dispose: stop,
-				};
+				// The ✕ in the frame and a click outside close it like esc.
+				return closable(
+					tui,
+					{
+						render,
+						invalidate: () => browser.invalidate(),
+						handleInput: (data: string) => browser.handleInput(data),
+						handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
+						dispose: stop,
+					},
+					close,
+				);
 			},
 			{ overlay: true, overlayOptions: layout },
 		);

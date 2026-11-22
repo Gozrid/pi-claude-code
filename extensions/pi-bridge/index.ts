@@ -56,6 +56,7 @@ import { WishBrowser, workPrompt } from "./wish-popup.ts";
 import { endHeadline, endMessage, formatElapsed, watchLines, Watches, type WatchEnd } from "./watch.ts";
 import { SPINNER_MS, Stepper, stepLines } from "./steps.ts";
 import { darkenBackdrop } from "../shared/backdrop.ts";
+import { closable } from "../shared/dialog.ts";
 import { OPENING_MS, UNFOLD_MS, unfoldedSize } from "../shared/opening.ts";
 import { rowClick, WISH_LIST_CHANNEL, type WishListOffer } from "../shared/wish-list.ts";
 
@@ -174,13 +175,18 @@ export default function (pi: ExtensionAPI) {
 				};
 				// Edits by hand (e) and by other pi sessions show up while the popup is open.
 				watchFile(file, { interval: 1000 }, reload);
-				return {
-					render,
-					invalidate: () => browser.invalidate(),
-					handleInput: (data: string) => browser.handleInput(data),
-					handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
-					dispose: stop,
-				};
+				// The ✕ in the frame and a click outside close it like esc.
+				return closable(
+					tui,
+					{
+						render,
+						invalidate: () => browser.invalidate(),
+						handleInput: (data: string) => browser.handleInput(data),
+						handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
+						dispose: stop,
+					},
+					close,
+				);
 			},
 			{ overlay: true, overlayOptions: layout },
 		);
@@ -510,17 +516,22 @@ export default function (pi: ExtensionAPI) {
 					tui.requestRender();
 				}, SPINNER_MS * 2);
 				ticker.unref?.();
-				return {
-					render,
-					invalidate: () => browser.invalidate(),
-					handleInput: (data: string) => browser.handleInput(data),
-					handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
-					dispose: () => {
-						if (ticker) clearInterval(ticker);
-						stopFrames();
-						restoreBackdrop?.();
+				// The ✕ in the frame and a click outside close it like esc.
+				return closable(
+					tui,
+					{
+						render,
+						invalidate: () => browser.invalidate(),
+						handleInput: (data: string) => browser.handleInput(data),
+						handleMouse: (event: TuiMouseEvent) => browser.handleMouse(event),
+						dispose: () => {
+							if (ticker) clearInterval(ticker);
+							stopFrames();
+							restoreBackdrop?.();
+						},
 					},
-				};
+					close,
+				);
 			},
 			{ overlay: true, overlayOptions: layout },
 		);

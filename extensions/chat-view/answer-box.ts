@@ -14,7 +14,8 @@
 
 import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, Markdown, matchesKey, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { CLOSE_BUTTON, clampOffset, closeClicked, contentHeight, formatDuration, LONG_ROUND_MS, roundAnswer, wheelRows } from "./answer.ts";
+import { CLOSE_BUTTON, closeClicked } from "../shared/dialog.ts";
+import { clampOffset, contentHeight, formatDuration, LONG_ROUND_MS, roundAnswer, wheelRows } from "./answer.ts";
 import { barCodeBlocks } from "./code-blocks.ts";
 import { borderColor, editorHasFocus, type FrameBottom, frameRow, frameTop, joinEditor } from "./editor-frame.ts";
 

@@ -14,7 +14,7 @@
  * it. Arrows move between the parts and the canvas follows; shift+arrows, the
  * wheel (shift+wheel sideways) and dragging move the canvas itself.
  *
- *   ╭─ Workflow #3 · Build a car model ──────────────────────────────────────────╮
+ *   ╭─ Workflow #3 · Build a car model ────────────────────────────────────── ✕ ─╮
  *   │ running · 12 of 30 done · 3 running · 245.1k tokens · 3 at once · more →↓  │
  *   │                                                                            │
  *   │ ◆ Build a car model ─┬─ ✓ 1 Wheels ▸            │ 2.2 Doors                │
@@ -32,6 +32,7 @@
 
 import { Key, matchesKey, sliceByColumn, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatElapsed, formatTokens } from "../shared/format.ts";
+import { dialogFrame as frame } from "../shared/dialog.ts";
 import { openingTitle, shownRows } from "../shared/opening.ts";
 import { SPINNER } from "./steps.ts";
 import {
@@ -689,13 +690,3 @@ const pad = (line: string, width: number) => {
 	return `${fitted}${" ".repeat(Math.max(0, width - visibleWidth(fitted)))}`;
 };
 
-function frame(theme: Theme, width: number, title: string, hint: string, lines: string[]): string[] {
-	const border = (text: string) => theme.fg("borderAccent", text);
-	const edge = (left: string, label: string, right: string) => {
-		const room = width - 2;
-		const text = truncateToWidth(label, Math.max(0, room - 4), "…");
-		const filler = Math.max(0, room - 3 - visibleWidth(text));
-		return text ? `${border(`${left}─ `)}${text}${border(` ${"─".repeat(filler)}${right}`)}` : border(`${left}${"─".repeat(room)}${right}`);
-	};
-	return [edge("╭", title, "╮"), ...lines.map((line) => `${border("│")} ${line} ${border("│")}`), edge("╰", hint, "╯")];
-}

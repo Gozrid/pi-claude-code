@@ -4,7 +4,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clampOffset, closeClicked, contentHeight, formatDuration, roundAnswer, wheelRows } from "../extensions/chat-view/answer.ts";
+import { clampOffset, contentHeight, formatDuration, roundAnswer, wheelRows } from "../extensions/chat-view/answer.ts";
+import { closeClicked } from "../extensions/shared/dialog.ts";
 import { frameTop } from "../extensions/chat-view/editor-frame.ts";
 
 const text = (t: string) => ({ type: "text", text: t });

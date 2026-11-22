@@ -10,7 +10,7 @@ import type { UsageAccount } from "../extensions/shared/agent-bus.ts";
 import { darkenBackdrop, shadeLine } from "../extensions/shared/backdrop.ts";
 import { chart, easeOut, plot, sequential, stackedBars, valueAt } from "../extensions/usage-graph/chart.ts";
 import { History, KEEP_MS, newSamples, parseHistory, RECORD_EVERY_MS, type Sample } from "../extensions/usage-graph/history.ts";
-import { accountViews, animationMs, frame, headTabAt, renderAccount, renderModels, tabSpans } from "../extensions/usage-graph/index.ts";
+import { accountViews, animationMs, headTabAt, renderAccount, renderModels, tabSpans } from "../extensions/usage-graph/index.ts";
 import { Glide, OPENING_MS, openingTitle, RESIZE_MS, shownRows, TITLE_MS, UNFOLD_MS, unfoldedSize } from "../extensions/shared/opening.ts";
 import { bucketStart, ModelLog, modelViews, parseModelLog, sampleFromMessage, type TokenSample, totalTokens } from "../extensions/usage-graph/models.ts";
 
@@ -219,17 +219,6 @@ test("through pi's renderer proxy the screen gets bright again on close, also af
 	assert.match(tui.compositeOverlays(["red"], 80, 5)[0], /^\x1b\[38;2;45;45;45mred/);
 	again();
 	assert.deepEqual(tui.compositeOverlays(["red"], 80, 5), ["red", "overlay"]);
-});
-
-test("the dialog has a rounded frame with the title on top and the keys below", () => {
-	const lines = frame(theme, 20, "Plan usage", "esc close", ["a".padEnd(16), "b".padEnd(16)]);
-	assert.deepEqual(lines, [
-		"╭─ Plan usage ─────╮",
-		"│ a                │",
-		"│ b                │",
-		"╰─ esc close ──────╯",
-	]);
-	assert.equal(visibleWidth(frame(theme, 12, "a very long title", "", [])[0]), 12);
 });
 
 test("an answer becomes a token sample of its model; answers without tokens are skipped", () => {

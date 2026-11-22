@@ -2,7 +2,7 @@
  * The subagent popup: every subagent of the session in a box on the left, the
  * selected one's output on the right, live while it runs.
  *
- *   ╭─ Subagents ──────────────────────────────────────────────────────╮
+ *   ╭─ Subagents ────────────────────────────────────────────────── ✕ ─╮
  *   │  All 4   Running 1   Done 3   Stopped 0                    ● live │
  *   │                                                                    │
  *   │ ╭──────────────────────────╮ │ Review PR 13                        │
@@ -29,6 +29,7 @@
 import { Key, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Subagent, SubagentStatus, SubagentStep } from "../shared/agent-bus.ts";
 import { formatElapsed } from "../shared/format.ts";
+import { dialogFrame as frame } from "../shared/dialog.ts";
 import { openingTitle, shownRows } from "../shared/opening.ts";
 import { COLOR, runTime, sortAgents, SYMBOL, type Theme, toolLine } from "./panel.ts";
 
@@ -376,14 +377,3 @@ const pad = (line: string, width: number) => {
 	return `${fitted}${" ".repeat(Math.max(0, width - visibleWidth(fitted)))}`;
 };
 
-/** A rounded frame around `lines` (each `width - 4` wide), with `title` and `hint` in the borders. */
-function frame(theme: FullTheme, width: number, title: string, hint: string, lines: string[]): string[] {
-	const border = (text: string) => theme.fg("borderAccent", text);
-	const edge = (left: string, label: string, right: string) => {
-		const room = width - 2;
-		const text = truncateToWidth(label, Math.max(0, room - 4), "…");
-		const filler = Math.max(0, room - 3 - visibleWidth(text));
-		return text ? `${border(`${left}─ `)}${text}${border(` ${"─".repeat(filler)}${right}`)}` : border(`${left}${"─".repeat(room)}${right}`);
-	};
-	return [edge("╭", title, "╮"), ...lines.map((line) => `${border("│")} ${line} ${border("│")}`), edge("╰", hint, "╯")];
-}

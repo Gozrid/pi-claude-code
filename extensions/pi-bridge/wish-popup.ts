@@ -1,7 +1,7 @@
 /**
  * The wish popup: pi's wish list to read in full.
  *
- *   ╭─ Wishes ─────────────────────────────────────────────────────────╮
+ *   ╭─ Wishes ───────────────────────────────────────────────────── ✕ ─╮
  *   │ Active 3   Open 2   In progress 1   Done 4   All 7       / mcp    │
  *   │                                                                    │
  *   │ ╭────────────────────╮ │ Wishes popup with list and preview        │
@@ -31,6 +31,7 @@
 import { hyperlink, Key, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { dialogFrame as frame } from "../shared/dialog.ts";
 import { openingTitle, shownRows } from "../shared/opening.ts";
 import { type Wish, WISH_STATUSES, type WishStatus } from "./wishes.ts";
 
@@ -404,14 +405,3 @@ const pad = (line: string, width: number) => {
 	return `${fitted}${" ".repeat(Math.max(0, width - visibleWidth(fitted)))}`;
 };
 
-/** A rounded frame around `lines` (each `width - 4` wide), with `title` and `hint` in the borders. */
-function frame(theme: Theme, width: number, title: string, hint: string, lines: string[]): string[] {
-	const border = (text: string) => theme.fg("borderAccent", text);
-	const edge = (left: string, label: string, right: string) => {
-		const room = width - 2;
-		const text = truncateToWidth(label, Math.max(0, room - 4), "…");
-		const filler = Math.max(0, room - 3 - visibleWidth(text));
-		return text ? `${border(`${left}─ `)}${text}${border(` ${"─".repeat(filler)}${right}`)}` : border(`${left}${"─".repeat(room)}${right}`);
-	};
-	return [edge("╭", title, "╮"), ...lines.map((line) => `${border("│")} ${line} ${border("│")}`), edge("╰", hint, "╯")];
-}

@@ -20,6 +20,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	type Component,
 	Key,
 	matchesKey,
 	type OverlayOptions,
@@ -37,6 +38,7 @@ import {
 } from "../shared/agent-bus.ts";
 import { formatDuration, formatTokens } from "../shared/format.ts";
 import { darkenBackdrop } from "../shared/backdrop.ts";
+import { closable, dialogFrame as frame } from "../shared/dialog.ts";
 import { chart, formatAgo, type Point, sequential, stackedBars, valueAt } from "./chart.ts";
 import { History, type Sample } from "./history.ts";
 import { Glide, OPENING_MS, openingTitle, shownRows, UNFOLD_MS, unfoldedSize } from "../shared/opening.ts";
@@ -210,24 +212,6 @@ export function headTabAt(x: number, views: readonly string[], ranges: readonly 
 	return range >= 0 ? { range } : undefined;
 }
 
-/**
- * A rounded frame around `lines` (each `width - 4` wide), with `title` in the
- * top border and `hint` in the bottom one:
- *
- *   ╭─ Plan usage ──────────────╮
- *   │ …                         │
- *   ╰─ esc close ───────────────╯
- */
-export function frame(theme: Theme, width: number, title: string, hint: string, lines: string[]): string[] {
-	const border = (text: string) => theme.fg("borderAccent", text);
-	const edge = (left: string, label: string, right: string) => {
-		const room = width - 2;
-		const text = truncateToWidth(label, Math.max(0, room - 4));
-		const filler = Math.max(0, room - 3 - visibleWidth(text));
-		return text ? `${border(`${left}─ `)}${text}${border(` ${"─".repeat(filler)}${right}`)}` : border(`${left}${"─".repeat(room)}${right}`);
-	};
-	return [edge("╭", title, "╮"), ...lines.map((line) => `${border("│")} ${line} ${border("│")}`), edge("╰", hint, "╯")];
-}
 
 export default function (pi: ExtensionAPI) {
 	const history = new History();
@@ -453,7 +437,7 @@ export default function (pi: ExtensionAPI) {
 						animate();
 					};
 
-					return {
+					const dialog: Component & { dispose(): void } = {
 						render(width: number): string[] {
 							const now = Date.now();
 							const elapsed = now - openedAt;
@@ -537,6 +521,11 @@ export default function (pi: ExtensionAPI) {
 						},
 						dispose: close,
 					};
+					// The ✕ in the frame and a click outside close it like esc.
+					return closable(tui, dialog, () => {
+						close();
+						done();
+					});
 				},
 				{ overlay: true, overlayOptions: layout },
 			);
