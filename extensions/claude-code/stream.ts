@@ -105,8 +105,8 @@ export function scratchDir(piSessionId: string | undefined): string {
  * prompts, Claude asks it instead of denying what its mode does not allow,
  * and its own question tool is disallowed: questions go through pi's `ask`.
  */
-export function piMcpArgs(provider = "", command = "claude"): string[] {
-	const bridge = runtime.bridge?.(provider, command);
+export function piMcpArgs(provider = "", command = "claude", superAgent = false): string[] {
+	const bridge = runtime.bridge?.(provider, command, superAgent);
 	const own: Record<string, CliMcpServer> = bridge ? { [bridge.name]: { type: "http", url: bridge.url, headers: bridge.headers } } : {};
 	const permission = bridge?.permissionTool
 		? ["--permission-prompts", "host", "--permission-prompt-tool", bridge.permissionTool]
@@ -114,7 +114,8 @@ export function piMcpArgs(provider = "", command = "claude"): string[] {
 	// pi's own dialog and read-only tools never wait for a permission prompt.
 	if (bridge?.allowedTools?.length) permission.push("--allowedTools", bridge.allowedTools.join(","));
 	// pi's dialog answers questions; Claude's own would come as a permission prompt.
-	const ownTools = bridge?.permissionTool ? [CLAUDE_ASK_TOOL] : [];
+	// Super-subagents take the place of Claude's own subagents (see pi-bridge/super-agents.ts).
+	const ownTools = [...(bridge?.permissionTool ? [CLAUDE_ASK_TOOL] : []), ...(bridge?.disallowedTools ?? [])];
 	const disallow = (tools: string[]) => (tools.length > 0 ? ["--disallowedTools", tools.join(",")] : []);
 	if (ownMcp()) {
 		// Claude keeps its own servers; pi's server comes on top.
@@ -477,7 +478,7 @@ function launchSignature(args: string[]): string {
 // Streaming
 // =============================================================================
 
-function effortFor(model: Model<Api>, level: string | undefined): string | undefined {
+export function effortFor(model: Model<Api>, level: string | undefined): string | undefined {
 	if (!level || level === "off" || !model.reasoning) return undefined;
 	const mapped = (model as any).thinkingLevelMap?.[level];
 	if (mapped === null) return undefined;

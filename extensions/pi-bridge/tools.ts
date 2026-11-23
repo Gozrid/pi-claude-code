@@ -20,6 +20,7 @@ import { formatElapsed, MAX_TIMEOUT_MIN, DEFAULT_TIMEOUT_MIN, timeoutMsOf, type 
 import { MAX_STEPS, STEP_STATUSES, type Stepper, summary } from "./steps.ts";
 import { DEFAULT_PARALLEL, MAX_DEPTH, MAX_LEAVES, MAX_PARALLEL, PART_STATUSES } from "./workflow.ts";
 import type { WorkflowRunner } from "./workflow-runner.ts";
+import { AGY_SUBAGENT_TOOL, offersSuperAgents, SUPER_TOOL, superAgentsTool } from "./super-agents.ts";
 
 export interface Host {
 	pi: ExtensionAPI;
@@ -63,6 +64,10 @@ export function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
  */
 export async function agyHook(host: Host, payload: HookPayload, client: BridgeClient): Promise<Record<string, string>> {
 	const data = (client.data ?? {}) as ClientData;
+	// With super-subagents on, agy's own subagents are off, in every mode.
+	if (payload.toolCall?.name === AGY_SUBAGENT_TOOL && offersSuperAgents(client)) {
+		return { decision: "deny", reason: `pi's super-subagents are on: use the \`${SUPER_TOOL}\` tool of the pi MCP server instead of ${AGY_SUBAGENT_TOOL}.` };
+	}
 	// In plan, auto and bypass the hook only holds agy while a dialog is open (see server.ts); agy's mode decides.
 	if (!GATED_MODES.includes(data.mode ?? "default")) return {};
 	const action = gateAction(payload);
@@ -791,6 +796,10 @@ export function bridgeTools(host: Host): BridgeTool[] {
 				}
 			},
 		},
+		superAgentsTool(
+			(channel, data) => pi.events.emit(channel, data),
+			(client) => ((client.data ?? {}) as ClientData).cwd ?? host.ctx()?.cwd ?? process.cwd(),
+		),
 		{
 			name: "notify",
 			description: "Show a short notification in pi (e.g. when a long task is done).",
@@ -813,4 +822,5 @@ export const SERVER_INSTRUCTIONS = `pi is the terminal chat app the user talks t
 - To wait for something outside that takes a while (a CI run, a deployment, a PR's checks), start a \`watch\` and end your turn: pi runs the command and starts a new turn with its result. Prefer it to background shell commands and sleep loops, which can be ended between turns.
 - For a job of several steps that takes a while (e.g. build, install and start an app), show them as a stepper with \`steps_set\` and move each on with \`steps_update\` as you go, so the user sees where you are.
 - For a big task that splits into many parts subagents can each do on their own, or when the user asks for a workflow, plan it with \`workflow_plan\`: the user reviews the tree of parts, then you run it with \`workflow_next\` and \`workflow_update\`, doing each small part in a subagent.
+- When \`super_agents\` is offered, use it for every task you would give a subagent: your built-in subagents are switched off then.
 - \`status\`, \`settings\`, \`themes\`, \`keybindings\`, \`commands\`, \`tools\`, \`mcp_servers\` and \`docs\` read pi's state; the set_* tools change it after asking the user.`;

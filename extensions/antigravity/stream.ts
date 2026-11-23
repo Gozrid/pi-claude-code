@@ -188,7 +188,7 @@ const TOOL_NAMES: Record<string, string> = {
 };
 
 /** Bookkeeping steps that are not shown. */
-const QUIET_TOOLS = new Set(["finish", "wait", "wait_5_seconds", "list_permissions"]);
+export const QUIET_TOOLS = new Set(["finish", "wait", "wait_5_seconds", "list_permissions"]);
 
 const EDIT_TOOLS = new Set(["write_file", "write_to_file", "replace_file_content", "multi_replace_file_content", "sed_file"]);
 

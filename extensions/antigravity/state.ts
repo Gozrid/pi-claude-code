@@ -71,7 +71,7 @@ export const runtime = {
 	/** The next run skips agy's permission checks once (`--dangerously-skip-permissions`), then this is cleared. */
 	skipPermissionsOnce: false,
 	/** Set by the extension: pi's own MCP server for a run (pi-bridge), undefined when it is off. */
-	bridge: undefined as ((provider: string) => BridgeServerInfo | undefined) | undefined,
+	bridge: undefined as ((provider: string, superAgent?: boolean) => BridgeServerInfo | undefined) | undefined,
 	/** Set by the extension: pi's tools (pi.getAllTools()), for the MCP tools pi hides. */
 	piTools: undefined as (() => readonly PiToolInfo[]) | undefined,
 	/** The conversation of the agy run in progress, once agy has named it; for its subagents. */

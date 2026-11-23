@@ -46,6 +46,7 @@ import { BridgeServer } from "./server.ts";
 import { McpProxy } from "./mcp-proxy.ts";
 import { PI_MCP_SOURCE } from "../shared/pi-mcp.ts";
 import { GATE_RULES, GATED_MODES, HOOK_TIMEOUT } from "./agy-gate.ts";
+import { CLAUDE_SUBAGENT_TOOLS, SUPER_TAG, setSuperAgents, superAgentsOn } from "./super-agents.ts";
 import { agyHook, bridgeTools, type ClientData, freeTools, type Host, oneAtATime, SERVER_INSTRUCTIONS, SERVER_NAME, wishesFileOf } from "./tools.ts";
 import { ask } from "./ask.ts";
 import { type Workflow, WorkflowStore } from "./workflow.ts";
@@ -360,6 +361,27 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("super-subagents", {
+		description: "Switch super-subagents on or off: own, fully visible CLI runs instead of the CLI's subagents (on, off, or toggle)",
+		getArgumentCompletions: (prefix: string) =>
+			["on", "off"].filter((v) => v.startsWith(prefix.trim())).map((value) => ({ value, label: value })),
+		handler: async (arg, ctx) => {
+			const word = arg.trim().toLowerCase();
+			if (word && word !== "on" && word !== "off") {
+				ctx.ui.notify("Usage: /super-subagents [on|off]", "warning");
+				return;
+			}
+			const on = word ? word === "on" : !superAgentsOn();
+			setSuperAgents(on);
+			ctx.ui.notify(
+				on
+					? "Super-subagents on: the agent hands tasks to its own CLI runs (super_agents), shown live in /subagents; its built-in subagents are off. Takes effect with the next message."
+					: "Super-subagents off: the agent uses its CLI's own subagents again.",
+				"info",
+			);
+		},
+	});
+
 
 	// Workflows: the progress above the editor, the popup with the tree (review and while it runs).
 	let workflowPopup: { id: number; close(): void } | undefined;
@@ -618,6 +640,7 @@ export default function (pi: ExtensionAPI) {
 		const token = server.token({
 			provider: request.provider,
 			kind: request.kind,
+			...(request.superAgent ? { tag: SUPER_TAG } : {}),
 			data: {
 				cwd: request.cwd,
 				claudeSettings: request.claudeSettings,
@@ -637,6 +660,8 @@ export default function (pi: ExtensionAPI) {
 			...(proxy.active ? { mcpUrl: url } : {}),
 			...(request.kind === "claude" && current?.hasUI ? { permissionTool: PERMISSION_TOOL } : {}),
 			...(request.kind === "claude" ? { allowedTools: freeTools(tools).map((t) => `mcp__${SERVER_NAME}__${t.name}`) } : {}),
+			// Super-subagents take the place of Claude's own; a super-subagent keeps its own subagents.
+			...(request.kind === "claude" && !request.superAgent && superAgentsOn() ? { disallowedTools: CLAUDE_SUBAGENT_TOOLS } : {}),
 			...(hooked
 				? {
 						gate: {

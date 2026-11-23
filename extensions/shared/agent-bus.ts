@@ -265,6 +265,8 @@ export interface BridgeRequest {
 	/** agy: its settings file (allow rules) and the mode of the run. */
 	agySettings?: string;
 	mode?: string;
+	/** The CLI runs as a super-subagent (see SUPER_AGENT_CHANNEL): it gets no super-subagents of its own. */
+	superAgent?: boolean;
 	reply: (server: BridgeServerInfo) => void;
 }
 
@@ -288,9 +290,56 @@ export interface BridgeServerInfo {
 	 */
 	allowedTools?: string[];
 	/**
+	 * Claude: built-in tools to switch off (--disallowedTools), e.g. its Agent
+	 * tool while super-subagents take its place.
+	 */
+	disallowedTools?: string[];
+	/**
 	 * agy: pi asks before actions (see pi-bridge/agy-gate.ts). The run starts
 	 * with `allow` added to the user's allow rules and a PreToolUse hook that
 	 * posts to `url`, waiting up to `timeout` seconds. Unset when pi does not ask.
 	 */
 	gate?: { url: string; headers: Record<string, string>; allow: string[]; timeout: number };
+}
+
+// =============================================================================
+// Super-subagents (pi-bridge's `super_agents` tool)
+// =============================================================================
+
+/**
+ * pi.events channel; the payload is a SuperAgentRequest. pi-bridge sends it for
+ * each task of a `super_agents` call: a new, independent run of the calling
+ * agent's CLI (its own process and session, every tool of a main session). The
+ * provider extension that owns `provider` claims it during emit, shows the run
+ * live on SUBAGENTS_CHANNEL and replies once it is over.
+ */
+export const SUPER_AGENT_CHANNEL = "cli-agent:super-agent";
+
+export interface SuperAgentRequest {
+	/** pi provider id of the calling agent; its CLI runs the task. */
+	provider: string;
+	/** What it does, in a few words (the box title in the subagents popup). */
+	description: string;
+	prompt: string;
+	/** Model id for the run; unset takes the one selected in pi (or the CLI's default). */
+	model?: string;
+	cwd: string;
+	/** Aborted when the caller no longer waits; the run is stopped. */
+	signal?: AbortSignal;
+	/** Called right away (during emit) by the provider extension that takes the request. */
+	claim: () => void;
+	/** Called once, when the run is over. */
+	reply: (result: SuperAgentResult) => void;
+}
+
+export interface SuperAgentResult {
+	/** The run's final answer, or why it failed. */
+	text: string;
+	isError: boolean;
+	/** The CLI's session (Claude) or conversation (agy) id, to look at or resume it later. */
+	session?: string;
+	/** Model the run used. */
+	model?: string;
+	/** Tokens it used, when the CLI reports them. */
+	tokens?: number;
 }

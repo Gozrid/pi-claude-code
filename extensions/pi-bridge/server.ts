@@ -54,6 +54,8 @@ export interface BridgeClient {
 	/** pi provider id, e.g. "claude-bag". */
 	provider: string;
 	kind: "claude" | "agy" | "pi";
+	/** Tells clients of the same provider and kind apart (e.g. "super" for a super-subagent's CLI). */
+	tag?: string;
 	/** Extra data the provider gave along (e.g. how to save permission rules). */
 	data?: unknown;
 }
@@ -73,7 +75,10 @@ export interface BridgeTool {
 	annotations?: ToolAnnotations;
 	/** Only listed for these kinds of clients; all when unset. */
 	only?: BridgeClient["kind"][];
-	call(args: Record<string, any>, client: BridgeClient): Promise<ToolResult>;
+	/** Listed only when this says so; checked on every tools/list. */
+	visible?(client: BridgeClient): boolean;
+	/** `signal` aborts when the caller hangs up (not for agy, whose calls go on across its calls again). */
+	call(args: Record<string, any>, client: BridgeClient, signal?: AbortSignal): Promise<ToolResult>;
 }
 
 /** A server the owner proxies at `/mcp/<name>`. */
@@ -161,7 +166,7 @@ export class BridgeServer {
 	/** A token for one client; the same client data gets the same token again. */
 	token(client: BridgeClient): string {
 		for (const [token, known] of this.clients) {
-			if (known.provider === client.provider && known.kind === client.kind) {
+			if (known.provider === client.provider && known.kind === client.kind && known.tag === client.tag) {
 				this.clients.set(token, client);
 				return token;
 			}
@@ -172,7 +177,7 @@ export class BridgeServer {
 	}
 
 	private visibleTools(client: BridgeClient): BridgeTool[] {
-		return this.tools().filter((tool) => !tool.only || tool.only.includes(client.kind));
+		return this.tools().filter((tool) => (!tool.only || tool.only.includes(client.kind)) && (tool.visible?.(client) ?? true));
 	}
 
 	private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -205,7 +210,12 @@ export class BridgeServer {
 		const own = path === "/mcp" || path === "/";
 		const batch = Array.isArray(body);
 		const requests = (batch ? body : [body]) as RpcRequest[];
-		const replies = (await Promise.all(requests.map((request) => this.dispatch(request, client, endpoint, own)))).filter(
+		// The caller hung up before the answer: a tool that runs long can stop.
+		const hangUp = new AbortController();
+		res.on("close", () => {
+			if (!res.writableFinished) hangUp.abort();
+		});
+		const replies = (await Promise.all(requests.map((request) => this.dispatch(request, client, endpoint, own, hangUp.signal)))).filter(
 			(reply) => reply !== undefined,
 		);
 		if (replies.length === 0) {
@@ -278,7 +288,7 @@ export class BridgeServer {
 		return outcome.ok;
 	}
 
-	private async dispatch(request: RpcRequest, client: BridgeClient, endpoint: Endpoint, own: boolean): Promise<unknown> {
+	private async dispatch(request: RpcRequest, client: BridgeClient, endpoint: Endpoint, own: boolean, signal?: AbortSignal): Promise<unknown> {
 		if (!request || typeof request.method !== "string") return rpcError(null, -32600, "Invalid Request");
 		const id = request.id;
 		// Notifications get no reply.
@@ -308,7 +318,7 @@ export class BridgeServer {
 				if (!tool) return rpcError(id, -32602, `Unknown tool: ${name}`);
 				try {
 					const args = request.params?.arguments ?? {};
-					const result = own && client.kind === "agy" ? await this.callForAgy(tool, args, client) : await tool.call(args, client);
+					const result = own && client.kind === "agy" ? await this.callForAgy(tool, args, client) : await tool.call(args, client, signal);
 					if (result.raw) return rpcResult(id, result.raw);
 					return rpcResult(id, { content: [{ type: "text", text: result.text }], isError: result.isError ?? false });
 				} catch (error) {

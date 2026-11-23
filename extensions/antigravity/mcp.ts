@@ -89,11 +89,11 @@ export function gateSettings(gate: NonNullable<BridgeServerInfo["gate"]>, settin
  * tools pi does not hide; without it, agy starts them itself and leaves out
  * the tools pi hides (`disabledTools`).
  */
-export function piMcpArgs(command: string, none = false, provider = ""): string[] {
+export function piMcpArgs(command: string, none = false, provider = "", superAgent = false): string[] {
 	if (ownMcp() || /--gemini_dir\b/.test(command)) return [];
 	if (none) return [`--gemini_dir=${geminiMirror(mcpConfigJson({}))}`];
 	const { servers } = piMcpServers({ agentDir: getAgentDir(), cwd: runtime.cwd, projectTrusted: runtime.projectTrusted });
-	const bridge = runtime.bridge?.(provider);
+	const bridge = runtime.bridge?.(provider, superAgent);
 	const own: Record<string, CliMcpServer> = bridge ? { [bridge.name]: { type: "http", url: bridge.url, headers: bridge.headers } } : {};
 	const hooks = bridge?.gate ? gateHooks(bridge.gate) : undefined;
 	const proxy = bridge?.mcpUrl ? { url: (name: string) => `${bridge.mcpUrl}/${encodeURIComponent(name)}`, headers: bridge.headers } : undefined;

@@ -66,7 +66,11 @@ import {
 	type UsageRefreshRequest,
 	SUBAGENTS_CHANNEL,
 	type SubagentsEvent,
+	SUPER_AGENT_CHANNEL,
+	type SuperAgentRequest,
 } from "../shared/agent-bus.ts";
+import { SuperAgentList } from "../shared/super-agents.ts";
+import { runAgySuperAgent, superModel } from "./super-agents.ts";
 import { formatDuration } from "../shared/format.ts";
 import { type AgyModel, loadCachedModels, queryModels, queryUsage, saveCachedModels, toProviderModel } from "./cli.ts";
 import {
@@ -274,12 +278,13 @@ export default function (pi: ExtensionAPI) {
 	pi.registerMessageRenderer(STOPPED_MESSAGE, (message, _options, theme) => new Text(theme.fg("warning", `⚠ ${String(message.content)}`), 0, 0));
 	runtime.onActivity = (provider, activity) => pi.events.emit(ACTIVITY_CHANNEL, { provider, activity } satisfies ActivityEvent);
 	runtime.piTools = () => pi.getAllTools();
-	runtime.bridge = (provider) => {
+	runtime.bridge = (provider, superAgent) => {
 		let server: BridgeServerInfo | undefined;
 		pi.events.emit(BRIDGE_CHANNEL, {
 			provider,
 			kind: "agy",
 			cwd: runtime.cwd,
+			...(superAgent ? { superAgent } : {}),
 			agySettings: AGY_SETTINGS_FILE,
 			mode: runtime.skipPermissionsOnce ? "bypass" : runtime.mode,
 			reply: (info) => {
@@ -376,7 +381,32 @@ export default function (pi: ExtensionAPI) {
 		if (agents) pi.events.emit(SUBAGENTS_CHANNEL, { source: SOURCE, agents } satisfies SubagentsEvent);
 	};
 
+	// Super-subagents (pi-bridge's super_agents): agy runs of their own, live in the subagents popup.
+	const superAgents = new SuperAgentList((agents) =>
+		pi.events.emit(SUBAGENTS_CHANNEL, { source: `${SOURCE}:super`, agents } satisfies SubagentsEvent),
+	);
+	pi.events.on(SUPER_AGENT_CHANNEL, (data) => {
+		const request = data as SuperAgentRequest;
+		if (!isAntigravityProvider(request?.provider)) return;
+		const state = runtime.instances.get(request.provider);
+		if (!state) return;
+		request.claim();
+		let selected: string | undefined;
+		try {
+			selected = current?.model?.provider === request.provider ? current.model.id : undefined;
+		} catch {
+			// A stale context: agy's default model.
+		}
+		const model = superModel(state.models, request.model ?? selected, pi.getThinkingLevel());
+		try {
+			runAgySuperAgent(superAgents, state.instance.command, request, model);
+		} catch (error) {
+			request.reply({ text: `The super-subagent could not start: ${error instanceof Error ? error.message : String(error)}`, isError: true });
+		}
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
+		superAgents.clearFinished();
 		runtime.sessionId = ctx.sessionManager.getSessionId();
 		runtime.cwd = ctx.cwd;
 		runtime.projectTrusted = ctx.isProjectTrusted();
@@ -404,6 +434,8 @@ export default function (pi: ExtensionAPI) {
 		publish(ctx);
 	});
 	pi.on("agent_end", async (_event, ctx) => {
+		// The turn that waited for its super-subagents is over (stopped, failed): nobody waits for them now.
+		superAgents.stopAll();
 		publish(ctx);
 		publishDenials(ctx);
 		const state = ctx.model ? runtime.instances.get(ctx.model.provider) : undefined;
@@ -417,6 +449,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("turn_end", async (_event, ctx) => publish(ctx));
 	pi.on("agent_settled", async (_event, ctx) => publish(ctx));
 	pi.on("session_shutdown", async () => {
+		superAgents.stopAll();
 		if (ticker) clearInterval(ticker);
 		ticker = undefined;
 		if (watching) clearInterval(watching);

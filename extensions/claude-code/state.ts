@@ -110,7 +110,7 @@ export const runtime = {
 	/** Tool names the next run may use without asking (`--allowedTools`), then cleared. */
 	allowOnce: undefined as string[] | undefined,
 	/** Set by the extension: pi's own MCP server for a run (pi-bridge), undefined when it is off. */
-	bridge: undefined as ((provider: string, command: string) => BridgeServerInfo | undefined) | undefined,
+	bridge: undefined as ((provider: string, command: string, superAgent?: boolean) => BridgeServerInfo | undefined) | undefined,
 	/** Set by the extension: pi's tools (pi.getAllTools()), for the MCP tools pi hides. */
 	piTools: undefined as (() => readonly PiToolInfo[]) | undefined,
 	/** The claude process of the current run (see LiveRun). */

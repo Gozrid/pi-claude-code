@@ -64,6 +64,8 @@ import {
 	ONESHOT_CHANNEL,
 	SUBAGENTS_CHANNEL,
 	type SubagentsEvent,
+	SUPER_AGENT_CHANNEL,
+	type SuperAgentRequest,
 	type OneShotRequest,
 	TOOL_CHANNEL,
 	type UsageAccount,
@@ -98,8 +100,11 @@ import { loginInstance } from "./login.ts";
 import { oneShot } from "./oneshot.ts";
 import { type InstanceState, isClaudeProvider, MODE_CYCLE, PERMISSION_MODES, runtime } from "./state.ts";
 import { createPublisher, SOURCE } from "./status.ts";
+import { SuperAgentList } from "../shared/super-agents.ts";
+import { runClaudeSuperAgent } from "./super-agents.ts";
 import {
 	dropLiveRun,
+	effortFor,
 	forgetSessions,
 	loadSessions,
 	scratchDir,
@@ -177,12 +182,13 @@ export default function (pi: ExtensionAPI) {
 		const text = String(message.content);
 		return new Text(stopped ? theme.fg("warning", `⚠ ${text}`) : theme.fg("dim", `⏺ ${text}`), 0, 0);
 	});
-	runtime.bridge = (provider, command) => {
+	runtime.bridge = (provider, command, superAgent) => {
 		let server: BridgeServerInfo | undefined;
 		pi.events.emit(BRIDGE_CHANNEL, {
 			provider,
 			kind: "claude",
 			cwd: runtime.cwd,
+			...(superAgent ? { superAgent } : {}),
 			claudeSettings: {
 				project: join(runtime.cwd, ".claude", "settings.local.json"),
 				user: join(configDirOf(command), "settings.json"),
@@ -193,6 +199,28 @@ export default function (pi: ExtensionAPI) {
 		} satisfies BridgeRequest);
 		return server;
 	};
+
+	// Super-subagents (pi-bridge's super_agents): claude runs of their own, live in the subagents popup.
+	const superAgents = new SuperAgentList((agents) =>
+		pi.events.emit(SUBAGENTS_CHANNEL, { source: `${SOURCE}:super`, agents } satisfies SubagentsEvent),
+	);
+	pi.events.on(SUPER_AGENT_CHANNEL, (data) => {
+		const request = data as SuperAgentRequest;
+		if (!isClaudeProvider(request?.provider)) return;
+		const state = runtime.instances.get(request.provider);
+		if (!state) return;
+		request.claim();
+		// Unless the task names one: the model and effort selected in pi.
+		const selected = publisher.context?.model;
+		const own = selected?.provider === request.provider ? selected : undefined;
+		const model = request.model ?? own?.id;
+		const effort = own && model === own.id ? effortFor(own, pi.getThinkingLevel()) : undefined;
+		try {
+			runClaudeSuperAgent(superAgents, state, request, { model, effort });
+		} catch (error) {
+			request.reply({ text: `The super-subagent could not start: ${error instanceof Error ? error.message : String(error)}`, isError: true });
+		}
+	});
 
 	pi.events.on(ONESHOT_CHANNEL, (data) => {
 		const request = data as OneShotRequest;
@@ -392,6 +420,7 @@ export default function (pi: ExtensionAPI) {
 			}, 30_000);
 			ticker.unref?.();
 		}
+		superAgents.clearFinished();
 		if (ctx.hasUI && !watching) {
 			watching = setInterval(pollSubagents, 1000);
 			watching.unref?.();
@@ -410,6 +439,8 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" };
 	});
 	pi.on("agent_end", async (_event, ctx) => {
+		// The turn that waited for its super-subagents is over (stopped, failed): nobody waits for them now.
+		superAgents.stopAll();
 		// A steer pi did not deliver (taken back into the editor) leaves no CLI waiting for it.
 		dropLiveRun();
 		status.render(ctx);
@@ -424,8 +455,9 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", async (_event, ctx) => publisher.status(ctx));
 
 	pi.on("session_shutdown", async () => {
-		// The background tasks of the session's Claude end with pi's session.
+		// The background tasks of the session's Claude end with pi's session, as do its super-subagents.
 		stopLiveRun({ report: false });
+		superAgents.stopAll();
 		if (ticker) clearInterval(ticker);
 		ticker = undefined;
 		if (watching) clearInterval(watching);
