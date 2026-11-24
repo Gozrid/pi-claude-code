@@ -170,7 +170,7 @@ function draw(pose: Pose, tired = false, mascot: Mascot = "clawd"): string[] {
 
 /** The buddy: a 7×4 crab with two feet that take turns. */
 function buddy(step: number, mascot: Mascot = "clawd"): string[] {
-	if (mascot === "pip") return [".ooooo.", "oollolo", ".ooooo.", step % 2 ? ".o....." : ".....o."];
+	if (mascot === "pip") return [".ooooo.", "olililo", ".ovvoa.", step % 2 ? ".v....." : ".....v."];
 	if (mascot === "gravi") return [".ooooo.", "oo.o.oo", ".ooooo.", step % 2 ? "..fhf.." : "..hfh.."];
 	return [".ooooo.", "oo.o.oo", ".ooooo.", step % 2 ? ".o...o." : "..o.o.."];
 }

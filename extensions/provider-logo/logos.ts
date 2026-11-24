@@ -119,7 +119,11 @@ const PIP: Logo = {
 	...CLAWD,
 	name: "Codex CLI",
 	get art() { return clawdArt("pip"); },
-	color: { ...CLAWD.color, o: hex("#56D5B1"), l: hex("#144E46") },
+	color: {
+		...CLAWD.color,
+		o: hex("#8CBDF4"), l: hex("#15253D"), v: hex("#426994"),
+		i: hex("#D6FCFF"), a: hex("#63E6AF"),
+	},
 	frame: (time) => clawdFrame(time, "pip"),
 };
 

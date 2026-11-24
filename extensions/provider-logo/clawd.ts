@@ -1,5 +1,3 @@
-import { paintPip } from "../shared/pip.ts";
-
 /**
  * Clawd, Claude Code's mascot, as animated pixel art.
  *
@@ -407,7 +405,37 @@ function paintClawd(
 ): void {
 	const top = pose.squash ? 2 : 1;
 	if (species === "pip") {
-		paintPip(12, pose, set, body, lid);
+		// A pocket CRT with a recessed screen, a bevel and two little boots.
+		const shell = [
+			"..oooooooo..",
+			".ollllllllo.",
+			".ollllllllo.",
+			".ollllllllo.",
+			".ollllllllo.",
+			".ollllllllo.",
+			".ooovvvooao.",
+		];
+		const bezel = body === "o" ? "v" : lid;
+		const ink: Record<string, string> = { o: body, l: lid, v: bezel, a: pose.glow ?? "a" };
+		shell.forEach((line, row) => {
+			for (const [col, pixel] of [...line].entries()) {
+				if (pixel !== ".") set(Math.min(top + row, 7), col, ink[pixel]);
+			}
+		});
+		const x = 3 + (pose.look ?? 0);
+		const phosphor = pose.glow ?? (body === "o" ? "i" : body);
+		set(top + 2, x, phosphor);
+		set(top + 3, x + 1, phosphor);
+		set(top + 4, x, phosphor);
+		if (pose.eyes !== "closed") {
+			const cursor = pose.eyes === "half" ? bezel : phosphor;
+			set(top + 4, x + 3, cursor);
+			set(top + 4, x + 4, cursor);
+		}
+		set(pose.left === "up" ? 2 : 5, 0, body);
+		set(pose.right === "up" ? 2 : 5, 11, body);
+		if (pose.feet !== "left") set(8, 3, bezel);
+		if (pose.feet !== "right") set(8, 8, bezel);
 		return;
 	}
 	const gravi = species === "gravi";
@@ -459,7 +487,7 @@ function draw(pose: Pose, costume: Costume | undefined, time = 0, species: Speci
 	const extra = Math.max(0, (costume?.hat.length ?? 0) - 1) + (backdrop?.top ?? 0);
 	const left = backdrop?.left ?? 0;
 	const width = WIDTH + left + (backdrop?.right ?? 0);
-	const height = HEIGHT + extra;
+	const height = (species === "pip" ? 9 : HEIGHT) + extra;
 	const grid = Array.from({ length: height }, () => Array<string>(width).fill("."));
 	const put = (r: number, c: number, char: string) => {
 		if (r >= 0 && r < height && c >= 0 && c < width) grid[r][c] = char;

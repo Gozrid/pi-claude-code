@@ -65,7 +65,13 @@ const WANDER_MS = 20_000;
 
 /** Pixel colours per mascot: Clawd's orange; Gravi's Google blue with a yellow and red thruster flame. */
 const PALETTES: Record<Mascot, Record<string, Rgb>> = {
-	pip: { o: { r: 86, g: 213, b: 177 }, l: { r: 20, g: 78, b: 70 } },
+	pip: {
+		o: { r: 0x8c, g: 0xbd, b: 0xf4 },
+		l: { r: 0x15, g: 0x25, b: 0x3d },
+		v: { r: 0x42, g: 0x69, b: 0x94 },
+		i: { r: 0xd6, g: 0xfc, b: 0xff },
+		a: { r: 0x63, g: 0xe6, b: 0xaf },
+	},
 	clawd: {
 		o: { r: 0xd9, g: 0x77, b: 0x57 },
 		l: { r: 0x8f, g: 0x4a, b: 0x33 },
