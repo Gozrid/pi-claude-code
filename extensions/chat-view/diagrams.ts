@@ -13,7 +13,7 @@ import { Marked } from "@earendil-works/pi-tui";
 export interface Art {
 	width: number;
 	plain: string[];
-	styled: { cls: string; text: string }[][];
+	styled: { cls?: string; role?: string; text: string }[][];
 	warnings: string[];
 }
 export type Render = (source: string) => Art | null | undefined;
@@ -112,7 +112,7 @@ export function turnTooWide(
 		if (fit.kind === "tooWide") onTooWide?.((token as { text: string }).text, fit.width);
 		if (fit.kind !== "turned") return token.raw;
 		changed = true;
-		const lines = style ? fit.art.styled.map((row) => row.map((span) => style(span.cls, span.text)).join("")) : fit.art.plain;
+		const lines = style ? fit.art.styled.map((row) => row.map((span) => style(span.role ?? span.cls ?? "none", span.text)).join("")) : fit.art.plain;
 		return `${lines.map(codeSpan).join("  \n")}\n`;
 	});
 	return changed ? parts.join("") : markdown;

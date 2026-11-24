@@ -647,7 +647,7 @@ pi itself draws ```` ```mermaid ```` blocks as box-drawing art (setting `markdow
 - If a diagram fits neither way, it stays as source and, once the round is over, a note goes to the model (shown in the chat): which diagram, how many columns it needs, how many there are, and a request to draw it narrower. At most two notes in a row, then it waits until you write again; nothing is sent after Escape
 - Diagrams pi cannot draw at all (syntax errors, types such as `pie` or `gantt`) stay as pi shows them
 
-The drawing comes from `grok-mermaid`, which pi ships; chat-view loads it from pi's install. `%%{init}%%` options such as font size or spacing have no effect in the terminal.
+The drawing comes from `lovely-mermaid` (`grok-mermaid` in earlier pi versions), which pi ships; chat-view loads it from pi's install. `%%{init}%%` options such as font size or spacing have no effect in the terminal.
 
 - `PI_MERMAID_FEEDBACK=0` turns the note to the model off
 
@@ -913,7 +913,7 @@ Layout:
 | `extensions/shared/opening.ts` | how a dialog opens (`/usage`, the wish popup: unfolding frame, typed and lit title, rows appearing) and glides to a new size |
 | `extensions/shared/dialog.ts` | the popup dialogs' frame with the ✕ (`/usage`, wishes, workflow, subagents); a click on it or outside the dialog closes it |
 | `extensions/shared/backdrop.ts` | darkens the screen behind a dialog (`/usage`, the wish popup), fading in |
-| `extensions/shared/pi-install.ts` | where the running pi is installed: its package (docs, version) and dependencies such as grok-mermaid |
+| `extensions/shared/pi-install.ts` | where the running pi is installed: its package (docs, version) and dependencies such as the Mermaid renderer |
 | `extensions/shared/wish-list.ts` | event channel for the open wishes in the empty chat (pi-bridge → provider-logo), clicks on them back to the popup |
 | `extensions/shared/tool-lines.ts`, `diff.ts` | tool blocks (call and result: header, code, JSON, tables, images) and edit diffs the CLI providers write into the answer |
 | `settings/install.sh` | links and merges the pi settings in `settings/` into `~/.pi/agent` |

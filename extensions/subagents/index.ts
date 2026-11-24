@@ -66,7 +66,7 @@ export default function (pi: ExtensionAPI) {
 				const browser = new SubagentBrowser({
 					theme,
 					load: all,
-					markdown: (text, width) => new Markdown(text, 0, 0, markdownTheme).render(width),
+					markdown: (text, width) => [...new Markdown(text, 0, 0, markdownTheme).render(width)],
 					rows: () => Math.floor(tui.terminal.rows * 0.9),
 					requestRender: () => tui.requestRender(),
 					selected,

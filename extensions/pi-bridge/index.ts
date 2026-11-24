@@ -128,7 +128,7 @@ export default function (pi: ExtensionAPI) {
 				const browser = new WishBrowser({
 					theme,
 					load: () => readWishes(file),
-					markdown: (text, width) => new Markdown(text, 0, 0, markdownTheme).render(width),
+					markdown: (text, width) => [...new Markdown(text, 0, 0, markdownTheme).render(width)],
 					rows: () => Math.floor(tui.terminal.rows * 0.9),
 					requestRender: () => tui.requestRender(),
 					selected,
@@ -501,7 +501,7 @@ export default function (pi: ExtensionAPI) {
 					theme,
 					workflow: shown,
 					apply: (change) => runner.apply(shown(), change),
-					markdown: (text, width) => new Markdown(text, 0, 0, markdownTheme).render(width),
+					markdown: (text, width) => [...new Markdown(text, 0, 0, markdownTheme).render(width)],
 					rows: () => Math.floor(tui.terminal.rows * 0.9),
 					requestRender: () => tui.requestRender(),
 					approve: () => decide({ kind: "approved" }),

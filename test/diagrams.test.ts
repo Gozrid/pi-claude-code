@@ -11,7 +11,7 @@ const render = (await loadRenderer())!;
 
 const chain = "flowchart LR\n  A[Bluetooth verbunden] --> B[Dienst startet] --> C[GPS zeichnet auf] --> D[Fahrt gespeichert]";
 
-test("pi's grok-mermaid is found", () => {
+test("pi's installed Mermaid renderer is found", () => {
 	assert.equal(typeof render, "function");
 });
 
@@ -41,7 +41,7 @@ test("too wide either way is reported with the narrower width", () => {
 });
 
 test("diagrams that cannot be drawn at all are left to pi", () => {
-	assert.equal(fitDiagram("pie\n  \"a\" : 1", 200, render).kind, "skip");
+	assert.equal(fitDiagram("noSuchDiagram\n  a", 200, render).kind, "skip");
 });
 
 test("the Markdown gets the turned drawing as code rows; text around it stays", () => {

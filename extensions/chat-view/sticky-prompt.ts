@@ -76,7 +76,7 @@ function userMessages(document: Component, width: number): (Span & { lines: stri
 	const walk = (component: Component) => {
 		if (isUserMessage(component)) {
 			const lines = component.render(width);
-			found.push({ start: row, end: row + lines.length, lines });
+			found.push({ start: row, end: row + lines.length, lines: [...lines] });
 			row += lines.length;
 		} else if (isPlainContainer(component)) {
 			for (const child of component.children) walk(child);

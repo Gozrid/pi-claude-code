@@ -8,7 +8,7 @@
  * to the model once the round is over, asking it to draw the diagram narrower;
  * at most MAX_NOTES times in a row, until the user writes again.
  *
- * The drawing comes from grok-mermaid, which pi ships; without it nothing changes.
+ * The drawing comes from the Mermaid renderer pi ships; without it nothing changes.
  *
  * PI_MERMAID_FEEDBACK=0 turns the note to the model off.
  */
@@ -25,14 +25,16 @@ const NOTE = "mermaid-too-wide";
 /** Notes in a row without the user writing in between. */
 const MAX_NOTES = 2;
 
-/** grok-mermaid's render() from pi's own dependencies. */
+/** The Mermaid render() function from pi's own dependencies. */
 export async function loadRenderer(): Promise<Render | undefined> {
 	for (const from of piPaths()) {
-		try {
-			const entry = createRequire(from).resolve("grok-mermaid");
-			const module = (await import(pathToFileURL(entry).href)) as { render?: Render };
-			if (typeof module.render === "function") return module.render;
-		} catch {}
+		for (const name of ["lovely-mermaid", "grok-mermaid"]) {
+			try {
+				const entry = createRequire(from).resolve(name);
+				const module = (await import(pathToFileURL(entry).href)) as { render?: Render };
+				if (typeof module.render === "function") return module.render;
+			} catch {}
+		}
 	}
 	return undefined;
 }
