@@ -53,7 +53,7 @@ export interface ToolAnnotations {
 export interface BridgeClient {
 	/** pi provider id, e.g. "claude-bag". */
 	provider: string;
-	kind: "claude" | "agy" | "pi";
+	kind: "claude" | "agy" | "codex" | "pi";
 	/** Tells clients of the same provider and kind apart (e.g. "super" for a super-subagent's CLI). */
 	tag?: string;
 	/** Extra data the provider gave along (e.g. how to save permission rules). */

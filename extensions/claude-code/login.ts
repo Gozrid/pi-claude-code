@@ -7,7 +7,8 @@
  *   claude_oauth_callback             → completes the sign-in with a pasted code
  */
 
-import { spawn } from "node:child_process";
+import { openBrowser } from "../shared/account-ui.ts";
+export { openBrowser } from "../shared/account-ui.ts";
 import { createInterface } from "node:readline";
 import { spawnClaude, stopClaude } from "./cli.ts";
 import type { Instance } from "./config.ts";
@@ -30,15 +31,6 @@ export interface LoginUi {
 	 */
 	askCode(message: string, signal: AbortSignal): Promise<string | undefined>;
 	progress(message: string): void;
-}
-
-export function openBrowser(url: string): void {
-	const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-	try {
-		spawn(opener, [url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
-	} catch {
-		// The link is shown as well, so a missing opener is not fatal.
-	}
 }
 
 /** Runs the sign-in for one instance and resolves with the account it signed in to. */

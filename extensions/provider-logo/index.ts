@@ -13,7 +13,7 @@
  *
  * Usage:
  *   /logo        show the logo again (until the next message)
- *   /costume     dress Clawd and Gravi up: a costume name, "none" or "auto" (by the date)
+ *   /costume     dress Clawd, Gravi and Pip up: a costume name, "none" or "auto" (by the date)
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -386,7 +386,7 @@ export default function (pi: ExtensionAPI) {
 
 	const costumeChoices = () => ["auto", "none", ...Object.keys(COSTUMES)];
 	pi.registerCommand("costume", {
-		description: "Dress Clawd and Gravi up: a costume, none, or auto (by the date)",
+		description: "Dress Clawd, Gravi and Pip up: a costume, none, or auto (by the date)",
 		getArgumentCompletions: (prefix) => {
 			const matches = costumeChoices().filter((c) => c.toLowerCase().startsWith(prefix.trim().toLowerCase()));
 			return matches.length > 0 ? matches.map((c) => ({ value: c, label: c })) : null;
@@ -398,7 +398,7 @@ export default function (pi: ExtensionAPI) {
 					ctx.ui.notify(`Usage: /costume <${costumeChoices().join(" | ")}>`, "error");
 					return;
 				}
-				const picked = await ctx.ui.select(`Clawd's costume (now: ${costumeName() ?? "none"})`, costumeChoices());
+				const picked = await ctx.ui.select(`Mascot costume (now: ${costumeName() ?? "none"})`, costumeChoices());
 				if (!picked) return;
 				choice = picked;
 			}
@@ -410,7 +410,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			chooseCostume(name === "auto" ? undefined : name);
 			const today = costumeFor(new Date()) ?? "none";
-			ctx.ui.notify(name === "auto" ? `Clawd dresses by the date again (today: ${today})` : `Clawd wears: ${name}`, "info");
+			ctx.ui.notify(name === "auto" ? `Seasonal mascot costume (today: ${today})` : `Mascot costume: ${name}`, "info");
 			// Show the new look right away, entrance included.
 			if (ctx.mode === "tui") {
 				since = Date.now();

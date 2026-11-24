@@ -115,6 +115,14 @@ const GRAVI: Logo = {
 	maxScale: 1,
 };
 
+const PIP: Logo = {
+	...CLAWD,
+	name: "Codex CLI",
+	get art() { return clawdArt("pip"); },
+	color: { ...CLAWD.color, o: hex("#56D5B1"), l: hex("#144E46") },
+	frame: (time) => clawdFrame(time, "pip"),
+};
+
 /** Gemini's four-point star with its blue → purple → rose gradient. */
 const GEMINI: Logo = {
 	name: "Gemini",
@@ -183,6 +191,7 @@ const BRANDS: Brand[] = [
 	{ provider: /^antigravity/, logo: GRAVI },
 	// Claude Code CLI instances (claude-code, claude-work, …) get Clawd, the API keeps the spark.
 	{ provider: /^claude/, logo: CLAWD },
+	{ provider: /^codex-cli(?:-|$)/, logo: PIP },
 	{ provider: /anthropic/, model: /claude|opus|sonnet|haiku|fable/, logo: CLAUDE },
 	{ provider: /google|gemini|vertex/, model: /gemini/, logo: GEMINI },
 	{ provider: /mistral/, model: /mistral|codestral|devstral/, logo: MISTRAL },

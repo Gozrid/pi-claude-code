@@ -65,6 +65,7 @@ const WANDER_MS = 20_000;
 
 /** Pixel colours per mascot: Clawd's orange; Gravi's Google blue with a yellow and red thruster flame. */
 const PALETTES: Record<Mascot, Record<string, Rgb>> = {
+	pip: { o: { r: 86, g: 213, b: 177 }, l: { r: 20, g: 78, b: 70 } },
 	clawd: {
 		o: { r: 0xd9, g: 0x77, b: 0x57 },
 		l: { r: 0x8f, g: 0x4a, b: 0x33 },
@@ -442,7 +443,7 @@ export default function (pi: ExtensionAPI) {
 			enabled = value === "on" ? true : value === "off" ? false : !enabled;
 			update(ctx);
 			if (!enabled) ctx.ui.notify("Crab hidden", "info");
-			else if (!mascotFor(ctx.model)) ctx.ui.notify("Crab on – it shows with Claude and Antigravity models", "info");
+			else if (!mascotFor(ctx.model)) ctx.ui.notify("Crab on – it shows with Claude, Antigravity and Codex CLI models", "info");
 			else if (!started) ctx.ui.notify("Crab on – it shows once the chat has started", "info");
 		},
 	});

@@ -3,15 +3,16 @@
 Extensions for [pi](https://pi.dev) in one package:
 
 - **claude-code** – uses the **Claude Code CLI** as a model provider, with your Claude subscription, even with several accounts at once. Only the connection: what the CLI does is shown by the extensions below
+- **codex** – uses the **Codex CLI** and its ChatGPT login as a model provider, with live tools, approvals, multiple accounts and Pip, its terminal mascot
 - **antigravity** – uses the **Antigravity CLI** (`agy`) as a model provider: Gemini, Claude and the other models of your Antigravity account. Only the connection, like **claude-code**
 - **agent-status-line** – status line below the editor for the CLI providers: mode (switched with Shift+Tab), model, effort, context and usage limits
-- **usage-graph** – `/usage` charts the plan usage limits of every connected account (all Claude CLI and Antigravity instances) and the tokens of every model over time
+- **usage-graph** – `/usage` charts the plan usage limits of every connected account (all Claude, Codex and Antigravity CLI accounts) and the tokens of every model over time
 - **task-list** – the task list a CLI agent keeps, above the editor while it works on it
 - **subagents** – the subagents a CLI agent runs (and pi-bridge's super-subagents), above the editor while they work; a click or `/subagents` opens a popup with every subagent of the session in a box and the selected one's output live
 - **pi-bridge** – pi's own MCP server for the CLI agents: Claude and agy ask pi before what their mode does not allow and wait for your answer, the agents ask you questions in a dialog with options and a field for your own answer, hand wishes to change pi over to you and keep a wish list (its open wishes stand at the bottom right of the empty chat; a click on them or `/wishes` opens a popup with the whole list and each wish in full), read pi's state and settings and change them after asking, and wait for things outside that take a while (a CI run, a deployment): pi runs the command itself, shows it above the editor and starts a new turn with the result when it ends (`/watches` stops one), and show a stepper above the editor for a job of several steps (build → install → start …) that they move on live as they work, and run a big task as a workflow: they plan it as a tree of parts you review and edit, then do it part by part in subagents while the progress stands above the editor (`/workflow` opens the tree), and, with `/super-subagents` on, hand subagent work to super-subagents: runs of their own CLI with every tool, shown live in the subagents popup; pi's MCP servers reach the agents through pi's own connections instead of being started twice
 - **permission-retry** – when a CLI agent was not allowed to do something, asks how to allow it and retries
 - **provider-logo** – shows the logo of the selected model's provider in the middle of the empty chat
-- **chat-crab** – a tiny Clawd (Gravi for Antigravity) above the editor that acts out what the agent is doing
+- **chat-crab** – a tiny Clawd (Pip for Codex, Gravi for Antigravity) above the editor that acts out what the agent is doing
 - **chat-view** – changes to the chat itself, for every model: keeps the user's message pinned at the top while the answer and thinking scroll below it, shows the keys for steering and queueing (including steer now) with the waiting messages while the agent works, groups thinking and tool calls so the answer stands apart, shows tool calls readably – the CLI agents' and the MCP tools of pi's own models (highlighted code, diffs, tables, file contents with line numbers, images, errors in red, long output collapsed until Ctrl+O), draws code blocks without the ``` fences, turns Mermaid flowcharts too wide for the chat and asks the model to redraw what still does not fit, lists the loaded extensions in the empty chat, opens the session's earlier prompts as a list with ↑, shows the suggestions for /commands and files in a frame above the editor, marks shell commands in the editor (`!` purple borders, `!!` grey text, a hint where the output goes), after a long round shows the answer in a scrollable box above the editor, and lets the editor grow and shrink smoothly
 - **image-paste** – attaches the images you paste (Ctrl+V), drag in or name by path in a prompt, so the model sees them directly
 - **work-status** – for every model: an animation in Claude Code style while a CLI provider works, a "✻ Cooked for 1m 12s" line after each answer, a working star in the terminal tab title, a macOS notification for long answers and a session title (and so tab name) written by the provider's smallest model
@@ -23,7 +24,7 @@ Each one can be switched on and off on its own with `pi config`.
 ## Requirements
 
 - pi ≥ 1.4
-- Claude Code CLI (`claude`) – the wizard takes care of signing in the accounts
+- Install the CLI for each provider you use. Claude Code (`claude`) and Codex (`codex`, with app-server v2) support browser sign-in. Antigravity uses `agy`
 - macOS or Linux (instances are started through `/bin/sh`)
 
 ## Installation
@@ -188,6 +189,38 @@ It is saved in `~/.pi/agent/claude-code.json`:
 - **Context window** is reported to pi as 1M so pi doesn't summarise on its own – Claude Code compacts by itself.
 - **Costs** in pi are the CLI's `total_cost_usd` (API prices), not what a subscription actually costs.
 
+## codex
+
+Pick **Codex CLI** in `/model` after `/reload`, or start pi directly:
+
+```sh
+pi --model codex-cli/default
+```
+
+The default follows your Codex configuration. Named models and their available pi thinking levels come from the installed CLI. To use an existing ChatGPT sign-in, choose a model and send a message. To sign in from pi, choose **Codex CLI** under `/login`. Codex manages the credentials. Set `PI_CODEX_NO_BROWSER=1` to copy the sign-in URL and open it yourself. Tested with pi 1.6.0 and Codex CLI 0.172.0.
+
+Pip is a mint-green pocket terminal. It waves on the start screen and wears the selected or seasonal `/costume`. During a chat the small Pip above the editor reads, types, runs commands and celebrates along with Codex. Use `/logo` to see the large figure again and `/crab` to toggle the small one.
+
+| Command | Effect |
+|---|---|
+| `/codex-add` | Add your current login, sign a separate ChatGPT account into its own config folder, or supply a base command |
+| `/codex-setup` | List, rename, reconfigure or remove accounts. Also accepts `list`, `add <name> = <command>` and `remove <name>` |
+| `/login` → Codex CLI | Browser sign-in for that account, or add another account |
+| `/codex-models`, `/codex-usage` | Refresh the accounts’ model lists or usage windows. The shared `/usage` chart includes Codex |
+| `/codex-mode` | Select `default`, `workspace-write`, `plan`, `read-only` or `full-access`. Shift+Tab cycles the first three |
+| `/effort` | Select a thinking level supported by both the selected model and pi |
+| `/codex-new` | Start a fresh Codex thread on the next prompt with the current pi transcript |
+| `/codex-scratch` | Show the current session’s temporary directory |
+
+Each account appears as a provider of its own, such as `codex-cli-work`. The first account you add replaces the implicit default. Account definitions are in `~/.pi/agent/codex-cli.json` and model caches are in `~/.pi/agent/codex-cli-models/`. `PI_CODING_AGENT_DIR` moves both. `PI_CODEX_BIN` sets the default base command, `PI_CODEX_MODE` the initial mode and `PI_CODEX_SCRATCH_DIR` the parent directory for temporary files.
+
+Codex runs its native tools through `codex app-server` over stdio. It reads its own settings and project instructions, including `CLAUDE.md` as a fallback for `AGENTS.md`. The pi transcript stores the Codex thread and turn reference. Reopening the session resumes that thread. Switching to Codex from another provider, forking or returning to an earlier branch replays the visible conversation into a fresh thread whenever the saved tip differs.
+
+- Text, reasoning summaries, file changes, command output and MCP results appear in the chat. Images in prompts go directly to Codex. Plain-text steers and their attachments go to the active turn, queued follow-ups wait, and Escape interrupts the turn.
+- The status line shows the mode, context and reported plan limits. Plans feed the task list and native subagents feed the subagent panel. The CLI connection stays open between interactive turns for background work.
+- In `default` mode Codex uses its configured sandbox and approval policy. `workspace-write` lets Codex edit the workspace and ask in pi for additional access. `plan` uses Codex’s plan collaboration mode with a read-only sandbox. `full-access` explicitly selects unrestricted execution. Native permission questions appear as pi dialogs. Without a UI, approval requests are declined.
+- **pi-bridge** supplies pi’s MCP tools, including questions, wishes, watches, steps, workflows and super-subagents. Session titles run in a separate ephemeral, read-only thread.
+
 ## antigravity
 
 Every prompt starts `agy -p` (stream-json). agy works with its own tools, sign-in, `GEMINI.md`/`AGENTS.md` rules and settings (`~/.gemini/antigravity-cli/settings.json`); pi shows text and tool calls live. One pi session corresponds to one agy conversation, continued with `--conversation`.
@@ -270,11 +303,12 @@ agy signs in only in its own UI. If the test fails, run the command in a termina
 
 ## MCP servers for the CLI providers
 
-The Claude Code CLI and agy each have MCP servers of their own. Started from pi (**claude-code**, **antigravity**), they get **pi's MCP servers and only those**; started on their own (`claude`, `agy`), they keep theirs.
+Claude Code, Codex and agy each have MCP servers of their own. Started from pi (**claude-code**, **codex**, **antigravity**), they get **pi's MCP servers and only those**; started on their own (`claude`, `codex`, `agy`), they keep theirs.
 
 pi's servers are the ones in `~/.pi/agent/mcp.json` and, in a trusted project, `<project>/.pi/mcp.json` – added with `pi mcp add` or by hand (see pi's MCP docs). They are read the way pi reads them: a project entry replaces the global one of the same name or, without `command`/`url`, only switches it on or off; `enabled: false` leaves a server out, as does `exposure: "hidden"` unless `toolExposure` shows some of its tools; `${VAR}` and `!command` in `env` and `headers` are resolved, `~/` and `cwd` too. The file with the result (credentials included) lies in `$TMPDIR/pi-mcp/`, readable by the user only, and is read again for every prompt, so changes to `mcp.json` count from the next one on.
 
 - **Claude**: `--strict-mcp-config --mcp-config <file>` – no servers from `~/.claude.json`, `.mcp.json`, plugins or claude.ai connectors. One-off questions (session titles) run without any servers, as before
+- **Codex** receives pi’s servers and HTTP headers through app-server thread configuration. Configured native servers are disabled for that thread.
 - **agy** has no flag for another server list, only the hidden `--gemini_dir` for its whole folder. So it gets a mirror of `~/.gemini` in `$TMPDIR/pi-mcp/gemini-<hash>/`: every entry a link to the real one (sign-in, conversations, settings stay shared), except `config/mcp_config.json`, which lists pi's servers. An instance whose command sets its own `--gemini_dir` keeps its servers
 - Without a `mcp.json`, the CLIs run without MCP servers
 
@@ -282,9 +316,9 @@ pi's servers are the ones in `~/.pi/agent/mcp.json` and, in a trusted project, `
 
 **Started by the CLI (pi-bridge off)**: the CLIs start the servers from the entries above. Tools pi hides are left out once pi has connected the server – Claude with `--disallowedTools mcp__<server>__<tool>`, agy with `disabledTools` in its `mcp_config.json`. HTTP servers with OAuth sign in on the CLI's side, `auth` with a pi provider is not passed on, and pi's own connection to the servers goes unused.
 
-`PI_CLI_OWN_MCP=1` lets both CLIs use their own servers again.
+`PI_CLI_OWN_MCP=1` lets the CLIs use their own servers again.
 
-With **pi-bridge** on, both CLIs also get pi's own server `pi` (with `PI_CLI_OWN_MCP=1` only Claude, on top of its own servers).
+With **pi-bridge** on, all three CLIs also get pi's own server `pi` (with `PI_CLI_OWN_MCP=1` Claude and Codex keep the bridge alongside their own servers).
 
 ## pi-bridge
 
@@ -486,11 +520,12 @@ The provider offers the choices – Claude Code: allow the tools once, or switch
 While the chat is empty, the extension replaces pi's header with the logo of the selected model's provider – centred in the terminal, with the model name and the most important commands below it. The logo grows with the terminal size (up to 3× in steps of 0.5 using half blocks; Clawd stays small). chat-view's extension list stands at the bottom left and pi-bridge's open wishes at the bottom right (a click opens the wish popup), beside the logo where they fit (where the two lists don't fit beside each other, the wishes give way). When what is below it (editor, footer) leaves too little room, it moves up only as far as needed; if it still doesn't fit, the commands go first, then the picture, so the logo is never pushed off the top. The normal header comes back with the first message; switching the model in the empty chat switches the logo.
 
 - **Clawd**, the crab from Claude Code, for the Claude CLI instances – animated: jumps in when it appears and waves, then blinks, looks around, patters and hops now and then. `PI_LOGO_STATIC=1` keeps it still. On holidays it dresses up: Santa hat with snowfall in the background (1–26 December), party hat with fireworks in the background (New Year's Eve/Day), a pink partner Clawd with rising hearts (Valentine's Day), jester's cap with clown nose, streamers and fluttering confetti (carnival), bunny ears with painted eggs hopping in the grass (Good Friday to Easter Monday) and witch's hat (24–31 October; Clawd then comes out of the dark: first glowing eyes, its silhouette in a lightning flash, then it jumps out with fangs and red eyes). `/costume` changes the costume for the running pi session (a list to pick from, or directly e.g. `/costume halloween`; `none` without a costume, `auto` by the date again), `PI_CLAWD_COSTUME=christmas|newYear|valentine|carnival|easter|halloween|none` sets it at start
+- **Pip**, a mint pocket terminal with a blinking cursor, for Codex CLI accounts. It shares the entrance, idle animations and costumes
 - **Gravi**, a hover bot in Google blue, for Antigravity (whichever model it runs): Clawd's moves and costumes with a rounded body and a flickering thruster flame instead of feet; it bobs gently while it hovers
 - Own artwork: **Claude** (spark; Anthropic API and Claude via Bedrock/Vertex), **Gemini**, **Mistral**, **Meta**, **OpenAI**, **xAI**, **Ollama**
 - All other providers: their name in a block font, for known ones (Copilot, DeepSeek, Kimi, OpenRouter, Qwen) in their brand colour
 - `/logo` shows the logo again (until the next message)
-- `/costume` dresses Clawd and Gravi up: a costume, `none` or `auto` (by the date) – without an argument as a list
+- `/costume` dresses Clawd, Pip and Gravi up: a costume, `none` or `auto` (by the date) – without an argument as a list
 
 Tip: `"quietStartup": "header"` in `~/.pi/agent/settings.json` hides pi's own startup list of loaded extensions, skills etc., so the logo stands alone (chat-view lists the extensions above the editor instead).
 
@@ -498,7 +533,7 @@ The provider is recognised first, then the model name. New logos go into `extens
 
 ## chat-crab
 
-Once a chat with a Claude model has started, a tiny, slim Clawd (10 columns, 3 rows) lives above the editor and acts out what the agent is doing. With an Antigravity model Gravi plays the same scenes, in blue, hovering on its thruster flame:
+Once a chat with a Claude model has started, a tiny, slim Clawd (10 columns, 3 rows) lives above the editor and acts out what the agent is doing. With a Codex CLI model Pip plays the same scenes. With an Antigravity model Gravi plays them, in blue, hovering on its thruster flame:
 
 | Agent | Clawd |
 |---|---|
@@ -520,7 +555,7 @@ Once a chat with a Claude model has started, a tiny, slim Clawd (10 columns, 3 r
 | running for more than 3 minutes | gets tired eyes |
 | nothing to do | blinks and looks around; falls asleep after 90 s with Z's rising, at night (22–6 h) after 20 s |
 
-In the empty chat provider-logo shows the big Clawd; the small one appears with the first message (that one it catches without the fold, as it only appears then). The fold plays in the editor, which pi gives extensions no hook for; so chat-crab replaces the editor with pi's own one that wraps sending – another extension that replaces the editor takes over from it. The message still goes out at once. With models of other providers it stays away. pi's own tools come from pi's tool events; the CLIs run their tools themselves, so claude-code and antigravity publish them on pi's event bus (channel `cli-agent:tool`). Beside it the crab has up to 56 columns for terminal, file name, host and text; less in narrow terminals, so it still has room to walk. While the agent works, chat-view's key hints stand right-aligned on the crab's middle row, in short form (`↵ steer · ⌃↵ now · ⌥↵ queue · esc stop`); the crab and its scenes keep left of them.
+In the empty chat provider-logo shows the big Clawd; the small one appears with the first message (that one it catches without the fold, as it only appears then). The fold plays in the editor, which pi gives extensions no hook for; so chat-crab replaces the editor with pi's own one that wraps sending – another extension that replaces the editor takes over from it. The message still goes out at once. With models of other providers it stays away. pi's own tools come from pi's tool events; the CLIs run their tools themselves, so claude-code, codex and antigravity publish them on pi's event bus (channel `cli-agent:tool`). Beside it the crab has up to 56 columns for terminal, file name, host and text; less in narrow terminals, so it still has room to walk. While the agent works, chat-view's key hints stand right-aligned on the crab's middle row, in short form (`↵ steer · ⌃↵ now · ⌥↵ queue · esc stop`); the crab and its scenes keep left of them.
 
 - `/crab [on|off]` shows or hides it (toggles without an argument)
 - `PI_CRAB=0` starts with the crab hidden
@@ -832,6 +867,12 @@ Layout:
 | `extensions/claude-code/usage.ts` | parse plan usage limits |
 | `extensions/claude-code/state.ts` | shared state, permission modes |
 | `extensions/claude-code/tasks.ts`, `diff.ts` | task list and edit diffs from Claude's tool calls |
+| `extensions/codex/index.ts` | account registration, commands, session lifecycle and event channels |
+| `extensions/codex/accounts.ts`, `client.ts` | account files, login, model discovery, usage and app-server RPC |
+| `extensions/codex/turn.ts`, `stream.ts` | thread continuity, streaming, steering and interruption |
+| `extensions/codex/protocol.ts`, `subagents.ts` | native tools, approval dialogs, MCP and child-thread updates |
+| `extensions/shared/account-ui.ts`, `pip.ts` | wizard UI adapters and Pip’s pixel art in both sizes |
+| `test/fake-codex.mjs`, `test/codex.test.ts` | app-server fixture and Codex provider and mascot tests |
 | `extensions/antigravity/index.ts` | entry point: providers per instance, /login, event channels, commands |
 | `extensions/antigravity/cli.ts` | start agy, model list and its effort variants |
 | `extensions/antigravity/stream.ts` | agy stream → pi events, conversation mapping, temp folders |

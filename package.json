@@ -1,7 +1,7 @@
 {
   "name": "pi-claude-code",
   "version": "0.1.0",
-  "description": "pi extensions: Claude Code and Antigravity CLIs as model providers (several accounts), plus a status line, usage charts, task list, subagents, pi's own MCP server for the agents (permissions, questions, wishes, watches, steps), chat view improvements, work status, image paste and an IDE connection. One line per extension in README.md.",
+  "description": "pi extensions: Claude Code, Codex and Antigravity CLIs as model providers (several accounts), plus a status line, usage charts, task list, subagents, pi's own MCP server for the agents (permissions, questions, wishes, watches, steps), chat view improvements, work status, image paste and an IDE connection. One line per extension in README.md.",
   "type": "module",
   "private": true,
   "keywords": [
@@ -9,6 +9,7 @@
     "pi-extension",
     "claude",
     "claude-code",
+    "codex",
     "antigravity"
   ],
   "repository": {
@@ -18,6 +19,7 @@
   "pi": {
     "extensions": [
       "./extensions/claude-code/index.ts",
+      "./extensions/codex/index.ts",
       "./extensions/antigravity/index.ts",
       "./extensions/agent-status-line/index.ts",
       "./extensions/usage-graph/index.ts",

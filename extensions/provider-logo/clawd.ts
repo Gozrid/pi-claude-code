@@ -1,3 +1,5 @@
+import { paintPip } from "../shared/pip.ts";
+
 /**
  * Clawd, Claude Code's mascot, as animated pixel art.
  *
@@ -14,7 +16,7 @@
 import type { Frame } from "./logos.ts";
 
 /** Who is drawn: Clawd for Claude Code, Gravi for Antigravity. */
-export type Species = "clawd" | "gravi";
+export type Species = "clawd" | "gravi" | "pip";
 
 type Eyes = "open" | "half" | "closed";
 type Arm = "down" | "up";
@@ -404,6 +406,10 @@ function paintClawd(
 	species: Species = "clawd",
 ): void {
 	const top = pose.squash ? 2 : 1;
+	if (species === "pip") {
+		paintPip(12, pose, set, body, lid);
+		return;
+	}
 	const gravi = species === "gravi";
 	for (let row = top; row <= 4; row++) {
 		for (let col = 1; col <= 10; col++) {

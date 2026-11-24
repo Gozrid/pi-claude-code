@@ -33,6 +33,9 @@ const MODE_LABELS: Record<string, string> = {
 	"accept-edits": "⏵⏵ accept edits",
 	plan: "⏸ plan",
 	default: "⏵ default",
+	"workspace-write": "⏵⏵ workspace write",
+	"read-only": "◉ read only",
+	"full-access": "⚠ full access",
 	dontAsk: "dontAsk",
 	bypassPermissions: "⚠ bypass permissions",
 	bypass: "⚠ bypass permissions",
@@ -54,11 +57,11 @@ const MODE_TYPING_SHARE = 0.55;
 const MODE_TICK_MS = 40;
 
 function modeColor(mode: string): Parameters<Theme["fg"]>[0] {
-	return mode === "bypassPermissions" || mode === "bypass"
+	return mode === "bypassPermissions" || mode === "bypass" || mode === "full-access"
 		? "error"
 		: mode === "plan"
 			? "syntaxType"
-			: mode === "acceptEdits" || mode === "accept-edits"
+			: mode === "acceptEdits" || mode === "accept-edits" || mode === "workspace-write"
 				? "syntaxKeyword"
 				: mode === "auto"
 					? "success"

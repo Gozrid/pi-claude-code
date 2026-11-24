@@ -110,7 +110,7 @@ async function confirmChange(host: Host, title: string, message: string): Promis
 	if (!(await ctx.ui.confirm(title, message))) throw new Error("The user did not allow this change.");
 }
 
-const agentName = (client: BridgeClient) => ({ claude: "Claude", agy: "agy", pi: "The agent" })[client.kind];
+const agentName = (client: BridgeClient) => ({ claude: "Claude", codex: "Codex", agy: "agy", pi: "The agent" })[client.kind];
 
 function readJsonFile(file: string): any {
 	try {

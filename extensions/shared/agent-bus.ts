@@ -258,7 +258,7 @@ export const BRIDGE_CHANNEL = "pi-bridge:server";
 export interface BridgeRequest {
 	/** pi provider id of the selected model. */
 	provider: string;
-	kind: "claude" | "agy";
+	kind: "claude" | "agy" | "codex";
 	cwd: string;
 	/** Claude: settings files for "always allow" rules. */
 	claudeSettings?: { project: string; user: string };

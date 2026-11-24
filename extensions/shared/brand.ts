@@ -9,7 +9,7 @@
 export type Rgb = { r: number; g: number; b: number };
 
 export interface Brand {
-	id: "claude" | "antigravity" | "default";
+	id: "claude" | "antigravity" | "codex" | "default";
 	/** Colour of the spinner and the working verb … */
 	accent: Rgb;
 	/** … and the light it shimmers to. */
@@ -23,7 +23,7 @@ export interface Brand {
 	/** A verb for the line after the answer. */
 	doneVerbs: string[];
 	/** The figure in chat-crab and provider-logo; none for providers without one. */
-	mascot?: "clawd" | "gravi";
+	mascot?: "clawd" | "gravi" | "pip";
 }
 
 const CLAUDE: Brand = {
@@ -76,12 +76,24 @@ const ANTIGRAVITY: Brand = {
 	mascot: "gravi",
 };
 
+const CODEX: Brand = {
+	id: "codex",
+	accent: { r: 86, g: 213, b: 177 },
+	light: { r: 203, g: 255, b: 235 },
+	frames: ["▁", "▃", "▅", "▇", "▅", "▃"],
+	mark: "▸",
+	verbs: ["Tracing", "Computing", "Compiling", "Tinkering"],
+	doneVerbs: ["Computed", "Resolved", "Finished"],
+	mascot: "pip",
+};
+
 /** Every other provider: Claude Code's look, without a mascot. */
 const DEFAULT: Brand = { ...CLAUDE, id: "default", mascot: undefined };
 
 /** The brand of a model: by its provider first (Claude through Antigravity is Antigravity), then by its name. */
 export function brandFor(model: { provider: string; id: string } | undefined): Brand {
 	if (!model) return DEFAULT;
+	if (/^codex-cli(?:-|$)/i.test(model.provider)) return CODEX;
 	if (/^antigravity/i.test(model.provider)) return ANTIGRAVITY;
 	if (/^claude|anthropic/i.test(model.provider) || /claude|opus|sonnet|haiku|fable/i.test(model.id)) return CLAUDE;
 	return DEFAULT;

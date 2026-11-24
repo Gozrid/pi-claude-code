@@ -52,7 +52,7 @@ export function setSuperAgents(on: boolean): void {
 
 /** Whether `client` may hand out super-subagents: the option is on and it is not one itself. */
 export const offersSuperAgents = (client: BridgeClient) =>
-	(client.kind === "claude" || client.kind === "agy") && client.tag !== SUPER_TAG && superAgentsOn();
+	(client.kind === "claude" || client.kind === "agy" || client.kind === "codex") && client.tag !== SUPER_TAG && superAgentsOn();
 
 export interface SuperTask {
 	description: string;
@@ -154,7 +154,7 @@ export function superAgentsTool(emit: (channel: string, data: unknown) => void, 
 			required: ["tasks"],
 		},
 		annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-		only: ["claude", "agy"],
+		only: ["claude", "agy", "codex"],
 		visible: offersSuperAgents,
 		async call(args, client, signal): Promise<ToolResult> {
 			if (!offersSuperAgents(client)) return { text: "Super-subagents are off.", isError: true };

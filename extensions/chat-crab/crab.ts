@@ -1,3 +1,5 @@
+import { paintPip } from "../shared/pip.ts";
+
 /**
  * The chat crab: a tiny, slim Clawd (10×6 pixels, three terminal rows) and its moods.
  * For Antigravity the same moods play with Gravi, a small hover bot: a rounded
@@ -61,7 +63,7 @@ export type Mood =
 	| "cheer";
 
 /** Who acts: Clawd for Claude, Gravi for Antigravity (see ../shared/brand.ts). */
-export type Mascot = "clawd" | "gravi";
+export type Mascot = "clawd" | "gravi" | "pip";
 
 /** What the crab acts out, beyond its mood. */
 export interface Scene {
@@ -119,38 +121,42 @@ function draw(pose: Pose, tired = false, mascot: Mascot = "clawd"): string[] {
 	const set = (row: number, col: number, char = "o") => {
 		if (row >= 0 && row < HEIGHT && col >= 0 && col < WIDTH) grid[row][col] = char;
 	};
-	const top = pose.squash ? 2 : 1;
-	const gravi = mascot === "gravi";
-	for (let row = top; row <= 4; row++) {
-		for (let col = 1; col <= WIDTH - 2; col++) {
-			// Gravi is round: no body pixels in its corners.
-			if (gravi && (row === top || row === 4) && (col === 1 || col === WIDTH - 2)) continue;
-			set(row, col);
-		}
-	}
-
-	const eyes = pose.eyes ?? (tired ? "half" : "open");
-	for (const col of [2, WIDTH - 3].map((c) => c + (pose.look ?? 0))) {
-		if (eyes === "open") set(2, col, ".");
-		else if (eyes === "half") set(2, col, "l");
-	}
-
-	const arm = (side: -1 | 1, state: Arm) => set(state === "down" ? 3 : 0, side < 0 ? 0 : WIDTH - 1);
-	arm(-1, pose.left ?? "down");
-	arm(1, pose.right ?? "down");
-
-	const feet = pose.feet ?? "both";
-	if (gravi) {
-		// The thruster's flame under the body: a hot core, a red edge; pattering feet make it flicker sideways.
-		const shift = feet === "left" ? -1 : feet === "right" ? 1 : 0;
-		const middle = WIDTH / 2 + shift;
-		set(5, middle - 2, "f");
-		set(5, middle - 1, "h");
-		set(5, middle, "h");
-		set(5, middle + 1, "f");
+	if (mascot === "pip") {
+		paintPip(WIDTH, { ...pose, eyes: pose.eyes ?? (tired ? "half" : "open") }, set);
 	} else {
-		if (feet !== "left") [1, 3].forEach((col) => set(5, col));
-		if (feet !== "right") [WIDTH - 4, WIDTH - 2].forEach((col) => set(5, col));
+		const top = pose.squash ? 2 : 1;
+		const gravi = mascot === "gravi";
+		for (let row = top; row <= 4; row++) {
+			for (let col = 1; col <= WIDTH - 2; col++) {
+				// Gravi is round: no body pixels in its corners.
+				if (gravi && (row === top || row === 4) && (col === 1 || col === WIDTH - 2)) continue;
+				set(row, col);
+			}
+		}
+
+		const eyes = pose.eyes ?? (tired ? "half" : "open");
+		for (const col of [2, WIDTH - 3].map((c) => c + (pose.look ?? 0))) {
+			if (eyes === "open") set(2, col, ".");
+			else if (eyes === "half") set(2, col, "l");
+		}
+
+		const arm = (side: -1 | 1, state: Arm) => set(state === "down" ? 3 : 0, side < 0 ? 0 : WIDTH - 1);
+		arm(-1, pose.left ?? "down");
+		arm(1, pose.right ?? "down");
+
+		const feet = pose.feet ?? "both";
+		if (gravi) {
+			// The thruster's flame under the body: a hot core, a red edge; pattering feet make it flicker sideways.
+			const shift = feet === "left" ? -1 : feet === "right" ? 1 : 0;
+			const middle = WIDTH / 2 + shift;
+			set(5, middle - 2, "f");
+			set(5, middle - 1, "h");
+			set(5, middle, "h");
+			set(5, middle + 1, "f");
+		} else {
+			if (feet !== "left") [1, 3].forEach((col) => set(5, col));
+			if (feet !== "right") [WIDTH - 4, WIDTH - 2].forEach((col) => set(5, col));
+		}
 	}
 
 	if (!pose.lifted) return grid.map((row) => row.join(""));
@@ -164,6 +170,7 @@ function draw(pose: Pose, tired = false, mascot: Mascot = "clawd"): string[] {
 
 /** The buddy: a 7×4 crab with two feet that take turns. */
 function buddy(step: number, mascot: Mascot = "clawd"): string[] {
+	if (mascot === "pip") return [".ooooo.", "oollolo", ".ooooo.", step % 2 ? ".o....." : ".....o."];
 	if (mascot === "gravi") return [".ooooo.", "oo.o.oo", ".ooooo.", step % 2 ? "..fhf.." : "..hfh.."];
 	return [".ooooo.", "oo.o.oo", ".ooooo.", step % 2 ? ".o...o." : "..o.o.."];
 }
