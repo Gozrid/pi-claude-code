@@ -407,7 +407,7 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on(MODE_CHANNEL, (data) => {
 		const r = data as ModeRequest;
 		if (!accounts.has(r.provider)) return;
-		const cycle = MODES.slice(0, 3);
+		const cycle = MODES.slice(0, 4);
 		const next = r.mode ?? cycle[(cycle.indexOf(mode) + 1) % cycle.length];
 		if (MODES.includes(next)) {
 			mode = next;

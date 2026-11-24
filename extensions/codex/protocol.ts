@@ -5,12 +5,14 @@ import { hiddenMcpTools, ownMcp, piMcpServers, viaProxy } from "../shared/pi-mcp
 import { saveToolImage, toolCallBlock, toolResultBlock, fence } from "../shared/tool-lines.ts";
 import type { Fields } from "./client.ts";
 
-export const MODES = ["default", "workspace-write", "plan", "read-only", "full-access"];
+export const MODES = ["default", "auto", "workspace-write", "plan", "read-only", "full-access"];
 export function modeParams(mode: string) {
 	switch (mode) {
 		case "plan":
 		case "read-only":
 			return { sandbox: "read-only", approvalPolicy: "never" };
+		case "auto":
+			return { sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "auto_review" };
 		case "workspace-write":
 			return { sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "user" };
 		case "full-access":

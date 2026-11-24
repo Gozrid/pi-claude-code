@@ -188,6 +188,11 @@ test("Codex approvals follow the decision offered, and native questions return t
 		{ answers: { q: { answers: ["A"] } } },
 	);
 	assert.deepEqual(modeParams("default"), {});
+	assert.deepEqual(modeParams("auto"), {
+		sandbox: "workspace-write",
+		approvalPolicy: "on-request",
+		approvalsReviewer: "auto_review",
+	});
 	assert.equal(modeParams("plan").sandbox, "read-only");
 	assert.equal(modeParams("workspace-write").approvalsReviewer, "user");
 });
