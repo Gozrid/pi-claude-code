@@ -3,9 +3,14 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { BRIDGE_CHANNEL, type BridgeRequest, type BridgeServerInfo } from "../shared/agent-bus.ts";
 import { hiddenMcpTools, ownMcp, piMcpServers, viaProxy } from "../shared/pi-mcp.ts";
 import { saveToolImage, toolCallBlock, toolResultBlock, fence } from "../shared/tool-lines.ts";
+import { canAutoApprove } from "./approvals.ts";
 import type { Fields } from "./client.ts";
 
-export const MODES = ["default", "auto", "workspace-write", "plan", "read-only", "full-access"];
+export const DEFAULT_MODE = "pi-auto";
+export const MODES = [DEFAULT_MODE, "auto", "workspace-write", "plan", "default", "read-only", "full-access"];
+export function initialMode(configured: string | undefined) {
+	return configured && MODES.includes(configured) ? configured : DEFAULT_MODE;
+}
 export function modeParams(mode: string) {
 	switch (mode) {
 		case "plan":
@@ -13,6 +18,7 @@ export function modeParams(mode: string) {
 			return { sandbox: "read-only", approvalPolicy: "never" };
 		case "auto":
 			return { sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "auto_review" };
+		case DEFAULT_MODE:
 		case "workspace-write":
 			return { sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "user" };
 		case "full-access":
@@ -124,6 +130,7 @@ export async function answerRequest(
 	p: Fields,
 	signal: AbortSignal,
 	item?: Fields,
+	mode?: string,
 ) {
 	const ui = ctx?.hasUI && !signal.aborted ? ctx.ui : undefined;
 	const confirm = async (title: string, details: string) =>
@@ -141,6 +148,13 @@ export async function answerRequest(
 			.filter(Boolean)
 			.join("\n");
 		const allowed = !p.availableDecisions || p.availableDecisions.includes("accept");
+		if (
+			allowed &&
+			ctx &&
+			mode === DEFAULT_MODE &&
+			method === "item/commandExecution/requestApproval" &&
+			(await canAutoApprove(ctx, p, signal))
+		) return { decision: "accept" };
 		const yes =
 			allowed &&
 			(await confirm(

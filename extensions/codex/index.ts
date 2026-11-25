@@ -47,7 +47,7 @@ import {
 	type Instance,
 } from "./accounts.ts";
 import { CodexClient, withClient } from "./client.ts";
-import { MODES } from "./protocol.ts";
+import { initialMode, MODES } from "./protocol.ts";
 import { streamTurn } from "./stream.ts";
 import { runTurn, type TurnEvents, type TurnOptions } from "./turn.ts";
 
@@ -71,7 +71,7 @@ export default function (pi: ExtensionAPI) {
 	const accounts = new Map<string, Account>();
 	const views = new Map<string, SessionView>();
 	let current: ExtensionContext;
-	let mode = MODES.includes(process.env.PI_CODEX_MODE ?? "") ? process.env.PI_CODEX_MODE! : "default";
+	let mode = initialMode(process.env.PI_CODEX_MODE);
 	let steer: Parameters<NonNullable<TurnEvents["ready"]>>[0] | undefined;
 	let shutdown = new AbortController();
 	let idle: { key: string; client: CodexClient } | undefined;

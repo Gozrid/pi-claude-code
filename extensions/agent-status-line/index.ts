@@ -29,6 +29,7 @@ const WIDGET = "agent-status-line";
 /** Modes in the CLIs' own words: Claude Code (auto, acceptEdits, …) and Antigravity (default, accept-edits, …). */
 const MODE_LABELS: Record<string, string> = {
 	auto: "⏵⏵ auto",
+	"pi-auto": "⏵⏵ pi auto",
 	acceptEdits: "⏵⏵ accept edits",
 	"accept-edits": "⏵⏵ accept edits",
 	plan: "⏸ plan",
@@ -63,7 +64,7 @@ function modeColor(mode: string): Parameters<Theme["fg"]>[0] {
 			? "syntaxType"
 			: mode === "acceptEdits" || mode === "accept-edits" || mode === "workspace-write"
 				? "syntaxKeyword"
-				: mode === "auto"
+				: mode === "auto" || mode === "pi-auto"
 					? "success"
 					: "muted";
 }

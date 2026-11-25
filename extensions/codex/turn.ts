@@ -5,7 +5,7 @@ import { toolBlockHeader } from "../shared/tool-lines.ts";
 import { digest, scratchDir, type Instance } from "./accounts.ts";
 import { CodexClient, type Fields } from "./client.ts";
 import { CodexSubagents } from "./subagents.ts";
-import { answerRequest, mcpConfig, modeParams, toolDisplay } from "./protocol.ts";
+import { answerRequest, DEFAULT_MODE, mcpConfig, modeParams, toolDisplay } from "./protocol.ts";
 
 type Input = { type: "text"; text: string; text_elements: never[] } | { type: "image"; url: string };
 const plain = (text: string): Input => ({ type: "text", text, text_elements: [] });
@@ -100,7 +100,14 @@ export async function runTurn(client: CodexClient, opts: TurnOptions, e: TurnEve
 	let parked = false;
 	const declined = new Set<string>();
 	client.onRequest = async (method, p) => {
-		const result = await answerRequest(kind === "title" ? undefined : ctx, method, p, dialogSignal, items.get(p.itemId));
+		const result = await answerRequest(
+			kind === "title" ? undefined : ctx,
+			method,
+			p,
+			dialogSignal,
+			items.get(p.itemId),
+			opts.mode,
+		);
 		if ("decision" in result && result.decision !== "accept") declined.add(p.itemId);
 		return result;
 	};
@@ -158,8 +165,11 @@ export async function runTurn(client: CodexClient, opts: TurnOptions, e: TurnEve
 			}
 			const tool = toolDisplay(item, ctx.cwd, scratch, completed);
 			if (tool) {
+				// The reviewers handle approval requests during the turn. Tool output can describe an earlier attempt.
 				if (
 					completed &&
+					opts.mode !== DEFAULT_MODE &&
+					opts.mode !== "auto" &&
 					tool.error &&
 					!declined.has(item.id) &&
 					/sandbox|operation not permitted|permission denied|read.only file system/i.test(item.aggregatedOutput ?? "")

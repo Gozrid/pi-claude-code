@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,7 @@ import {
 	windows,
 } from "../extensions/codex/accounts.ts";
 import { CodexClient, withClient } from "../extensions/codex/client.ts";
-import { answerRequest, modeParams } from "../extensions/codex/protocol.ts";
+import { answerRequest, initialMode, modeParams } from "../extensions/codex/protocol.ts";
 import { streamTurn } from "../extensions/codex/stream.ts";
 import { type TurnEvents, type TurnOptions } from "../extensions/codex/turn.ts";
 import { CodexSubagents } from "../extensions/codex/subagents.ts";
@@ -195,6 +196,81 @@ test("Codex approvals follow the decision offered, and native questions return t
 	});
 	assert.equal(modeParams("plan").sandbox, "read-only");
 	assert.equal(modeParams("workspace-write").approvalsReviewer, "user");
+});
+
+test("pi-auto approves simple branch switches and sends other requests to the normal dialog", async () => {
+	const cwd = realpathSync(mkdtempSync(join(dir, "checkout-")));
+	execFileSync("git", ["init", "--quiet", "--template="], { cwd });
+	let prompts = 0;
+	const ctx = {
+		cwd,
+		isProjectTrusted: () => true,
+		hasUI: true,
+		ui: {
+			confirm: async () => {
+				prompts++;
+				return false;
+			},
+		},
+	} as any;
+	const signal = new AbortController().signal;
+	const method = "item/commandExecution/requestApproval";
+	const request = { cwd, command: "/bin/zsh -lc 'git switch feature/sample'", availableDecisions: ["accept", "decline"] };
+	const approve = (overrides = {}, mode = "pi-auto") =>
+		answerRequest(ctx, method, { ...request, ...overrides }, signal, undefined, mode);
+
+	assert.equal(initialMode(undefined), "pi-auto");
+	assert.equal(initialMode("auto"), "auto");
+	assert.equal(initialMode("default"), "default");
+	assert.deepEqual(modeParams("pi-auto"), modeParams("workspace-write"));
+	assert.deepEqual(await approve(), { decision: "accept" });
+	assert.deepEqual(await approve({ command: "git switch -c feat/example main" }), { decision: "accept" });
+	assert.deepEqual(await approve({ availableDecisions: ["decline"] }), { decision: "decline" });
+	assert.equal(prompts, 0);
+
+	for (const overrides of [
+		{ command: "git switch --discard-changes main" },
+		{ command: "git switch main; whoami" },
+		{ command: "git switch main\nwhoami" },
+		{ command: "git switch $BRANCH" },
+		{ command: "git -C other switch main" },
+		{ cwd: dir },
+		{ kind: "stdin" },
+		{ kind: { requiredHumanApproval: {} } },
+		{ additionalPermissions: { fileSystem: { write: [dir] } } },
+		{ networkApprovalContext: {} },
+		{ environmentId: "remote" },
+	]) {
+		const before: number = prompts;
+		assert.deepEqual(await approve(overrides), { decision: "decline" });
+		assert.equal(prompts, before + 1);
+	}
+
+	assert.deepEqual(await approve({}, "workspace-write"), { decision: "decline" });
+	ctx.isProjectTrusted = () => false;
+	assert.deepEqual(await approve(), { decision: "decline" });
+	ctx.isProjectTrusted = () => true;
+	execFileSync("git", ["config", "core.hooksPath", "hooks"], { cwd });
+	assert.deepEqual(await approve(), { decision: "decline" });
+	execFileSync("git", ["config", "--unset", "core.hooksPath"], { cwd });
+	mkdirSync(join(cwd, ".git", "hooks"));
+	writeFileSync(join(cwd, ".git", "hooks", "post-checkout"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+	assert.deepEqual(await approve(), { decision: "decline" });
+});
+
+test("pi-auto skips the extra retry prompt for an already approved branch switch", async () => {
+	const cwd = realpathSync(mkdtempSync(join(dir, "retry-")));
+	execFileSync("git", ["init", "--quiet", "--template="], { cwd });
+	const log = join(dir, "checkout");
+	const o = { ...opts([user("retry checkout")], log), mode: "pi-auto" };
+	o.ctx = { ...o.ctx, cwd, isProjectTrusted: () => true };
+	const denials: string[] = [];
+	const result = await streamTurn(model, o, clientFor(o), {
+		denied: (_tool, detail) => denials.push(detail),
+	}).result();
+	assert.equal(result.stopReason, "stop", result.errorMessage);
+	assert.ok(logOf(log).some((entry) => entry.result?.decision === "accept"));
+	assert.deepEqual(denials, []);
 });
 
 test("child thread output stays on its agent and unrelated sessions are ignored", () => {

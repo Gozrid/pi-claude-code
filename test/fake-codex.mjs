@@ -1,9 +1,11 @@
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\n");
+let cwd;
 let thread = "thread-a",
 	turn = "turn-1",
-	pending = false;
+	pending = false,
+	checkout;
 const event = (method, params) => send({ method, params: { threadId: thread, turnId: turn, ...params } });
 const finish = () => {
 	event("item/started", { item: { type: "agentMessage", id: "answer" } });
@@ -20,6 +22,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 	if (!method) {
 		if (pending) {
 			pending = false;
+			if (checkout && result?.decision === "accept") {
+				const retry = { ...checkout, id: "checkout-retry" };
+				event("item/started", { item: retry });
+				event("item/completed", { item: { ...retry, exitCode: 0, aggregatedOutput: "Switched branch" } });
+			}
+			checkout = undefined;
 			finish();
 		}
 		continue;
@@ -62,6 +70,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			reply({ thread: { id: thread }, model: p.model || "gpt-fake" });
 			break;
 		case "thread/start":
+			cwd = p.cwd;
 			reply({ thread: { id: thread }, model: p.model || "gpt-fake" });
 			break;
 		case "turn/start": {
@@ -69,6 +78,21 @@ for await (const line of createInterface({ input: process.stdin })) {
 			event("turn/started", { turn: { id: turn } });
 			if (p.input.some((b) => b.text === "crash")) process.exit(9);
 			if (p.input.some((b) => b.text === "wait")) break;
+			if (p.input.some((b) => b.text === "retry checkout")) {
+				const command = "/bin/zsh -lc 'git switch feature/sample'";
+				checkout = { type: "commandExecution", id: "checkout", command };
+				event("item/started", { item: checkout });
+				event("item/completed", {
+					item: { ...checkout, exitCode: 128, aggregatedOutput: "fatal: .git/index.lock: Operation not permitted" },
+				});
+				pending = true;
+				send({
+					id: 1,
+					method: "item/commandExecution/requestApproval",
+					params: { threadId: thread, turnId: turn, itemId: "checkout-retry", command, cwd },
+				});
+				break;
+			}
 			event("turn/plan/updated", { plan: [{ step: "Read the file", status: "inProgress" }] });
 			event("item/completed", { item: { type: "reasoning", id: "think", summary: ["Inspecting the file"] } });
 			const command = {

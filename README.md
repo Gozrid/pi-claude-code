@@ -207,7 +207,7 @@ Pip is a mint-green pocket terminal. It waves on the start screen and wears the 
 | `/codex-setup` | List, rename, reconfigure or remove accounts. Also accepts `list`, `add <name> = <command>` and `remove <name>` |
 | `/login` → Codex CLI | Browser sign-in for that account, or add another account |
 | `/codex-models`, `/codex-usage` | Refresh the accounts’ model lists or usage windows. The shared `/usage` chart includes Codex |
-| `/codex-mode` | Select `default`, `auto`, `workspace-write`, `plan`, `read-only` or `full-access`. Shift+Tab cycles the first four |
+| `/codex-mode` | Select `pi-auto`, `auto`, `workspace-write`, `plan`, `default`, `read-only` or `full-access`. Shift+Tab cycles the first four |
 | `/effort` | Select a thinking level supported by both the selected model and pi |
 | `/codex-new` | Start a fresh Codex thread on the next prompt with the current pi transcript |
 | `/codex-scratch` | Show the current session’s temporary directory |
@@ -218,7 +218,8 @@ Codex runs its native tools through `codex app-server` over stdio. It reads its 
 
 - Text, reasoning summaries, file changes, command output and MCP results appear in the chat. Images in prompts go directly to Codex. Plain-text steers and their attachments go to the active turn, queued follow-ups wait, and Escape interrupts the turn.
 - The status line shows the mode, context and reported plan limits. Plans feed the task list and native subagents feed the subagent panel. The CLI connection stays open between interactive turns for background work.
-- In `default` mode Codex uses its configured sandbox and approval policy. With `/codex-mode auto`, Codex works in the workspace sandbox and its native automatic reviewer approves or denies requests for additional access. Set `PI_CODEX_MODE=auto` to start in this mode. `workspace-write` lets Codex edit the workspace and ask in pi for additional access. `plan` uses Codex’s plan collaboration mode with a read-only sandbox. `full-access` explicitly selects unrestricted execution. Native permission questions appear as pi dialogs. Without a UI, approval requests are declined.
+- Codex starts in `pi-auto` with its workspace sandbox. Pi automatically approves simple `git switch branch` and `git switch -c branch [start-point]` requests in a trusted repository root with a standard local Git directory. Requests involving checkout hooks, external Git configuration, additional permissions, or other commands go through the normal approval dialog. In a session without a UI, requests outside these rules are declined.
+- `auto` uses the Codex automatic reviewer. `workspace-write` asks in pi when Codex needs additional access. `default` uses the native Codex configuration. `plan` uses Codex’s plan collaboration mode with a read-only sandbox. `full-access` explicitly selects unrestricted execution. Set `PI_CODEX_MODE` to override the starting mode.
 - **pi-bridge** supplies pi’s MCP tools, including questions, wishes, watches, steps, workflows and super-subagents. Session titles run in a separate ephemeral, read-only thread.
 
 ## antigravity
@@ -870,7 +871,7 @@ Layout:
 | `extensions/codex/index.ts` | account registration, commands, session lifecycle and event channels |
 | `extensions/codex/accounts.ts`, `client.ts` | account files, login, model discovery, usage and app-server RPC |
 | `extensions/codex/turn.ts`, `stream.ts` | thread continuity, streaming, steering and interruption |
-| `extensions/codex/protocol.ts`, `subagents.ts` | native tools, approval dialogs, MCP and child-thread updates |
+| `extensions/codex/protocol.ts`, `approvals.ts`, `subagents.ts` | native tools, approval dialogs, Pi Auto rules, MCP and child-thread updates |
 | `extensions/shared/account-ui.ts`, `pip.ts` | wizard UI adapters and Pip’s pixel art in both sizes |
 | `test/fake-codex.mjs`, `test/codex.test.ts` | app-server fixture and Codex provider and mascot tests |
 | `extensions/antigravity/index.ts` | entry point: providers per instance, /login, event channels, commands |
